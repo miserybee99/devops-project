@@ -28,7 +28,7 @@ pipeline {
 
                     if [ ! -d ".tools/maven" ]; then
                         echo "Installing Maven 3.9.9..."
-                        curl -fsSL https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz -o /tmp/maven.tar.gz
+                        curl -fsSL https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz -o /tmp/maven.tar.gz
                         tar -xzf /tmp/maven.tar.gz -C .tools
                         mv .tools/apache-maven-3.9.9 .tools/maven
                         rm -f /tmp/maven.tar.gz
