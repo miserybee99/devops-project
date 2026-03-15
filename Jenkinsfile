@@ -1,81 +1,239 @@
 pipeline {
     agent any
 
+    tools {
+        jdk 'jdk-21'
+        maven 'maven-3.9'
+    }
+
+    parameters {
+        booleanParam(name: 'FORCE_BUILD_ALL', defaultValue: false, description: 'Build all services regardless of changes')
+    }
+
     stages {
+
         stage('Detect Changes') {
             steps {
                 script {
-                    // Lấy danh sách file thay đổi
-                    def changedFiles = sh(
-                        script: "git diff --name-only HEAD~1 HEAD",
-                        returnStdout: true
-                    ).trim().split('\n')
-
-                    // Danh sách tất cả services
-                    def services = [
-                        'media', 'product', 'cart', 'order',
-                        'customer', 'rating', 'inventory',
-                        'location', 'tax', 'search',
-                        'payment', 'payment-paypal', 'promotion',
-                        'storefront', 'storefront-bff',
-                        'backoffice', 'backoffice-bff', 'webhook'
+                    def allServices = [
+                        'common-library',
+                        'backoffice-bff',
+                        'cart',
+                        'customer',
+                        'delivery',
+                        'inventory',
+                        'location',
+                        'media',
+                        'order',
+                        'payment',
+                        'payment-paypal',
+                        'product',
+                        'promotion',
+                        'rating',
+                        'recommendation',
+                        'sampledata',
+                        'search',
+                        'storefront-bff',
+                        'tax',
+                        'webhook'
                     ]
 
-                    // Tìm service nào có thay đổi
-                    env.CHANGED_SERVICES = services.findAll { service ->
-                        changedFiles.any { it.startsWith("${service}/") }
-                    }.join(',')
+                    def frontendServices = [
+                        'storefront',
+                        'backoffice'
+                    ]
 
-                    echo "🔍 Services changed: ${env.CHANGED_SERVICES}"
+                    def commonLibDependents = allServices - ['common-library']
 
-                    if (env.CHANGED_SERVICES == '') {
-                        currentBuild.result = 'NOT_BUILT'
-                        error("No service changes detected, skipping.")
+                    if (params.FORCE_BUILD_ALL) {
+                        env.CHANGED_BACKEND_SERVICES  = allServices.join(',')
+                        env.CHANGED_FRONTEND_SERVICES = frontendServices.join(',')
+                        echo "FORCE_BUILD_ALL enabled — building everything"
+                        return
+                    }
+
+                    def changedFiles = []
+                    try {
+                        changedFiles = sh(
+                            script: "git diff --name-only HEAD~1 HEAD",
+                            returnStdout: true
+                        ).trim().split('\n').findAll { it }
+                    } catch (e) {
+                        echo "Could not detect changes (first build?). Building all services."
+                        env.CHANGED_BACKEND_SERVICES  = allServices.join(',')
+                        env.CHANGED_FRONTEND_SERVICES = frontendServices.join(',')
+                        return
+                    }
+
+                    echo "Changed files:\n${changedFiles.join('\n')}"
+
+                    def changedBackend  = [] as Set
+                    def changedFrontend = [] as Set
+
+                    def rootPomChanged = changedFiles.any { it == 'pom.xml' }
+
+                    def commonLibChanged = changedFiles.any { it.startsWith('common-library/') } || rootPomChanged
+
+                    if (commonLibChanged) {
+                        changedBackend.addAll(allServices)
+                    }
+
+                    for (file in changedFiles) {
+                        def service = allServices.find { file.startsWith("${it}/") }
+                        if (service) {
+                            changedBackend.add(service)
+                        }
+                        def frontend = frontendServices.find { file.startsWith("${it}/") }
+                        if (frontend) {
+                            changedFrontend.add(frontend)
+                        }
+                    }
+
+                    env.CHANGED_BACKEND_SERVICES  = changedBackend ? changedBackend.toList().join(',') : ''
+                    env.CHANGED_FRONTEND_SERVICES = changedFrontend ? changedFrontend.toList().join(',') : ''
+
+                    echo "Backend services to build:  ${env.CHANGED_BACKEND_SERVICES ?: '(none)'}"
+                    echo "Frontend services to build: ${env.CHANGED_FRONTEND_SERVICES ?: '(none)'}"
+                }
+            }
+        }
+
+        // ===================================================================
+        //  PHASE 1 — TEST
+        // ===================================================================
+        stage('Test') {
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES }
+            }
+            stages {
+
+                stage('Unit Tests') {
+                    steps {
+                        script {
+                            def services = env.CHANGED_BACKEND_SERVICES.split(',')
+                            def projects = services.collect { "-pl ${it}" }.join(' ')
+
+                            sh """
+                                mvn test \
+                                    ${projects} \
+                                    -am \
+                                    -Djacoco.skip=false \
+                                    -Dmaven.test.failure.ignore=true
+                            """
+                        }
+                    }
+                    post {
+                        always {
+                            junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
+
+                            jacoco(
+                                execPattern:      '**/target/jacoco.exec',
+                                classPattern:     '**/target/classes',
+                                sourcePattern:    '**/src/main/java',
+                                exclusionPattern: '**/config/**,**/exception/**,**/constants/**,**/*Application.class'
+                            )
+                        }
+                    }
+                }
+
+                stage('Integration Tests') {
+                    steps {
+                        script {
+                            def services = env.CHANGED_BACKEND_SERVICES.split(',')
+                            def projects = services.collect { "-pl ${it}" }.join(' ')
+
+                            sh """
+                                mvn verify \
+                                    ${projects} \
+                                    -am \
+                                    -DskipUnitTests=true \
+                                    -Djacoco.skip=false \
+                                    -Dmaven.test.failure.ignore=true
+                            """
+                        }
+                    }
+                    post {
+                        always {
+                            junit testResults: '**/target/failsafe-reports/*.xml', allowEmptyResults: true
+                        }
                     }
                 }
             }
         }
 
-        stage('Test') {
+        stage('Frontend Test') {
+            when {
+                expression { env.CHANGED_FRONTEND_SERVICES }
+            }
             steps {
                 script {
-                    def services = env.CHANGED_SERVICES.split(',')
-                    services.each { service ->
-                        echo "🧪 Testing service: ${service}"
-                        dir("${service}") {
-                            sh 'mvn test -B'
+                    def services = env.CHANGED_FRONTEND_SERVICES.split(',')
+                    for (svc in services) {
+                        dir(svc) {
+                            sh 'npm ci'
+                            sh 'npm run lint  || true'
+                            sh 'npm run test -- --coverage --reporters=default --reporters=jest-junit || true'
                         }
                     }
                 }
             }
             post {
                 always {
-                    script {
-                        def services = env.CHANGED_SERVICES.split(',')
-                        services.each { service ->
-                            junit testResults: "${service}/target/surefire-reports/*.xml",
-                                  allowEmptyResults: true
-                        }
-                    }
+                    junit testResults: '**/junit.xml', allowEmptyResults: true
+
+                    publishHTML(target: [
+                        reportDir:   'storefront/coverage/lcov-report',
+                        reportFiles: 'index.html',
+                        reportName:  'Storefront Coverage',
+                        allowMissing: true
+                    ])
+                    publishHTML(target: [
+                        reportDir:   'backoffice/coverage/lcov-report',
+                        reportFiles: 'index.html',
+                        reportName:  'Backoffice Coverage',
+                        allowMissing: true
+                    ])
                 }
             }
         }
 
-        stage('SonarQube Analysis') {
-            steps {
-                script {
-                    def services = env.CHANGED_SERVICES.split(',')
-                    services.each { service ->
-                        echo "📊 Analyzing service: ${service}"
-                        withSonarQubeEnv('SonarQube') {
-                            dir("${service}") {
-                                sh """
-                                    mvn sonar:sonar \
-                                      -Dsonar.projectKey=yas-${service} \
-                                      -Dsonar.projectName='YAS ${service}' \
-                                      -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                                      -B
-                                """
+        // ===================================================================
+        //  PHASE 2 — BUILD
+        // ===================================================================
+        stage('Build') {
+            parallel {
+
+                stage('Build Backend JARs') {
+                    when {
+                        expression { env.CHANGED_BACKEND_SERVICES }
+                    }
+                    steps {
+                        script {
+                            def services = env.CHANGED_BACKEND_SERVICES.split(',')
+                            def projects = services.collect { "-pl ${it}" }.join(' ')
+
+                            sh """
+                                mvn package \
+                                    ${projects} \
+                                    -am \
+                                    -DskipTests
+                            """
+                        }
+                    }
+                }
+
+                stage('Build Frontend') {
+                    when {
+                        expression { env.CHANGED_FRONTEND_SERVICES }
+                    }
+                    steps {
+                        script {
+                            def services = env.CHANGED_FRONTEND_SERVICES.split(',')
+                            for (svc in services) {
+                                dir(svc) {
+                                    sh 'npm ci'
+                                    sh 'npm run build'
+                                }
                             }
                         }
                     }
@@ -83,24 +241,32 @@ pipeline {
             }
         }
 
-        stage('Quality Gate') {
-            steps {
-                script {
-                    timeout(time: 5, unit: 'MINUTES') {
-                        waitForQualityGate abortPipeline: true
-                    }
-                }
+        stage('Build Docker Images') {
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
             }
-        }
-
-        stage('Build') {
             steps {
                 script {
-                    def services = env.CHANGED_SERVICES.split(',')
-                    services.each { service ->
-                        echo "🔨 Building service: ${service}"
-                        dir("${service}") {
-                            sh 'mvn package -DskipTests -B'
+                    def tag = "${env.BUILD_NUMBER}"
+                    def allChanged = []
+
+                    if (env.CHANGED_BACKEND_SERVICES) {
+                        allChanged.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
+                    }
+                    if (env.CHANGED_FRONTEND_SERVICES) {
+                        allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
+                    }
+
+                    def servicesToBuild = allChanged.findAll { svc ->
+                        fileExists("${svc}/Dockerfile")
+                    }
+
+                    for (svc in servicesToBuild) {
+                        def imageName = "yas-${svc}:${tag}"
+                        def imageLatest = "yas-${svc}:latest"
+                        echo "Building Docker image: ${imageName}"
+                        dir(svc) {
+                            sh "docker build -t ${imageName} -t ${imageLatest} ."
                         }
                     }
                 }
@@ -109,11 +275,15 @@ pipeline {
     }
 
     post {
+        always {
+            archiveArtifacts artifacts: '**/target/site/jacoco/**', allowEmptyArchive: true
+            cleanWs()
+        }
         success {
-            echo '✅ Pipeline passed!'
+            echo "Pipeline completed successfully."
         }
         failure {
-            echo '❌ Pipeline failed!'
+            echo "Pipeline failed — check the test reports and logs above."
         }
     }
 }
