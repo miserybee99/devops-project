@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        SERVICE_DIR = 'media'
+        SERVICE_DIR = '.'
     }
 
     stages {
