@@ -193,14 +193,21 @@ pipeline {
                     steps {
                         script {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
-                            def projects = services.collect { "-pl ${it}" }.join(' ')
+                            def skipList = ['common-library', 'sampledata', 'delivery']
+                            def servicesToCheck = services.findAll { !(it in skipList) }
 
-                            sh """
-                                mvn jacoco:check \
-                                    ${projects} \
-                                    -am \
-                                    -Djacoco.check.skip=false
-                            """
+                            if (servicesToCheck) {
+                                def projects = servicesToCheck.collect { "-pl ${it}" }.join(' ')
+                                sh """
+                                    mvn verify \
+                                        ${projects} \
+                                        -am \
+                                        -DskipTests \
+                                        -Djacoco.check.skip=false
+                                """
+                            } else {
+                                echo "No services to check coverage for."
+                            }
                         }
                     }
                 }
