@@ -325,6 +325,42 @@ pipeline {
                 }
             }
         }
+    
+        stage('Snyk Security Scan') {
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES }
+            }
+            steps {
+                script {
+                    def services = env.CHANGED_BACKEND_SERVICES.split(',')
+                    def skipList = ['sampledata', 'delivery']
+                    def servicesToScan = services.findAll { !(it in skipList) }
+
+                    for (svc in servicesToScan) {
+                        echo "🔒 Snyk scanning: ${svc}"
+                        dir(svc) {
+                            withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
+                                snyk(
+                                    snykInstallation: 'snyk',
+                                    snykTokenId: 'snyk-token',
+                                    targetFile: 'pom.xml',
+                                    organisation: '',
+                                    projectName: "yas-${svc}",
+                                    severity: 'high',
+                                    failOnIssues: false
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: '**/snyk-report.json',
+                                    allowEmptyArchive: true
+                }
+            }
+        }
     }
 
     post {
