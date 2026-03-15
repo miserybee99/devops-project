@@ -1,9 +1,10 @@
 pipeline {
     agent any
 
-    tools {
-        jdk 'jdk-21'
-        maven 'maven-3.9'
+    environment {
+        JAVA_HOME = "${WORKSPACE}/.tools/jdk-21"
+        MAVEN_HOME = "${WORKSPACE}/.tools/maven"
+        PATH = "${WORKSPACE}/.tools/jdk-21/bin:${WORKSPACE}/.tools/maven/bin:${env.PATH}"
     }
 
     parameters {
@@ -11,6 +12,33 @@ pipeline {
     }
 
     stages {
+
+        stage('Setup Tools') {
+            steps {
+                sh '''
+                    mkdir -p .tools
+
+                    if [ ! -d ".tools/jdk-21" ]; then
+                        echo "Installing JDK 21..."
+                        curl -fsSL https://download.java.net/java/GA/jdk21.0.2/f2283984656d49d69e91c558476027ac/13/GPL/openjdk-21.0.2_linux-x64_bin.tar.gz -o /tmp/jdk21.tar.gz
+                        tar -xzf /tmp/jdk21.tar.gz -C .tools
+                        mv .tools/jdk-21.0.2 .tools/jdk-21
+                        rm -f /tmp/jdk21.tar.gz
+                    fi
+
+                    if [ ! -d ".tools/maven" ]; then
+                        echo "Installing Maven 3.9.9..."
+                        curl -fsSL https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz -o /tmp/maven.tar.gz
+                        tar -xzf /tmp/maven.tar.gz -C .tools
+                        mv .tools/apache-maven-3.9.9 .tools/maven
+                        rm -f /tmp/maven.tar.gz
+                    fi
+
+                    java -version
+                    mvn -version
+                '''
+            }
+        }
 
         stage('Detect Changes') {
             steps {
