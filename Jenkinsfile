@@ -344,13 +344,18 @@ pipeline {
                     for (svc in allChanged) {
                         echo "🔒 Snyk scanning: ${svc}"
                         dir(svc) {
-                            snykSecurity(
-                                snykInstallation: 'snyk',
-                                snykTokenId: 'snyk-token',
-                                failOnIssues: false,
-                                monitorProjectOnBuild: true,
-                                additionalArguments: '--all-projects'
-                            )
+                            // Ép JAVA_HOME và PATH cho Snyk CLI
+                            withEnv([
+                                "JAVA_HOME=${env.JAVA_HOME}",
+                                "PATH=${env.JAVA_HOME}/bin:${env.PATH}"
+                            ]) {
+                                snykSecurity(
+                                    snykInstallation: 'snyk',
+                                    snykTokenId: 'snyk-token',
+                                    failOnIssues: false,
+                                    monitorProjectOnBuild: true,
+                                    additionalArguments: '--all-projects'
+                                )
                         }
                     }
                 }
