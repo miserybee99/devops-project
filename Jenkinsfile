@@ -74,8 +74,6 @@ pipeline {
                         'backoffice'
                     ]
 
-                    def commonLibDependents = allServices - ['common-library']
-
                     if (params.FORCE_BUILD_ALL) {
                         env.CHANGED_BACKEND_SERVICES  = allServices.join(',')
                         env.CHANGED_FRONTEND_SERVICES = frontendServices.join(',')
@@ -340,18 +338,12 @@ pipeline {
         //  PHASE 3 — CODE QUALITY & SECURITY SCAN
         // ===================================================================
         stage('SonarQube Analysis') {
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES }
+            }
             steps {
                 script {
-                    def modules = []
-
-                    if (env.CHANGED_BACKEND_SERVICES) {
-                        modules.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
-                    }
-
-                    if (!modules) {
-                        modules = ['media']
-                    }
-
+                    def modules = env.CHANGED_BACKEND_SERVICES.split(',').toList()
                     def projects = modules.collect { "-pl ${it}" }.join(' ')
 
                     sh """
@@ -375,9 +367,9 @@ pipeline {
         }
 
         stage('Snyk Security Scan') {
-            // when {
-            //     expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
-            // }
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+            }
             steps {
                 script {
                     def allChanged = []
@@ -387,11 +379,6 @@ pipeline {
                     }
                     if (env.CHANGED_FRONTEND_SERVICES) {
                         allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
-                    }
-
-                    // Nếu không có service nào thay đổi, mặc định scan media
-                    if (!allChanged) {
-                        allChanged = ['media']
                     }
 
                     for (svc in allChanged) {
