@@ -336,6 +336,11 @@ pipeline {
                         allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
                     }
 
+                    // Nếu không có service nào thay đổi, mặc định scan media
+                    if (!allChanged) {
+                        allChanged = ['media']
+                    }
+
                     for (svc in allChanged) {
                         echo "🔒 Snyk scanning: ${svc}"
                         dir(svc) {
