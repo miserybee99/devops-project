@@ -354,13 +354,19 @@ pipeline {
 
                     def projects = modules.collect { "-pl ${it}" }.join(' ')
 
+                    sh """
+                        mvn compile \
+                            ${projects} \
+                            -am \
+                            -DskipTests
+                    """
+
                     withSonarQubeEnv('sornaque') {
                         sh """
                             mvn sonar:sonar \
                                 ${projects} \
                                 -am \
                                 -DskipTests \
-                                -Dsonar.java.binaries=target/classes \
                                 -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
                         """
                     }
