@@ -126,6 +126,24 @@ pipeline {
         }
 
         // ===================================================================
+        //  PHASE 0 — SECRET SCAN
+        // ===================================================================
+        stage('Gitleaks Secret Scan') {
+            steps {
+                sh '''
+                    if ! command -v gitleaks &> /dev/null; then
+                        echo "Installing Gitleaks..."
+                        curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+                        tar -xzf /tmp/gitleaks.tar.gz -C .tools gitleaks
+                        rm -f /tmp/gitleaks.tar.gz
+                        export PATH="${PWD}/.tools:${PATH}"
+                    fi
+                    gitleaks detect --source . --verbose --redact --no-git || true
+                '''
+            }
+        }
+
+        // ===================================================================
         //  PHASE 1 — TEST
         // ===================================================================
         stage('Test') {
@@ -319,8 +337,37 @@ pipeline {
         }
 
         // ===================================================================
-        //  PHASE 3 — SECURITY SCAN
+        //  PHASE 3 — CODE QUALITY & SECURITY SCAN
         // ===================================================================
+        stage('SonarQube Analysis') {
+            steps {
+                script {
+                    def modules = []
+
+                    if (env.CHANGED_BACKEND_SERVICES) {
+                        modules.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
+                    }
+
+                    if (!modules) {
+                        modules = ['media']
+                    }
+
+                    def projects = modules.collect { "-pl ${it}" }.join(' ')
+
+                    withSonarQubeEnv('sornaque') {
+                        sh """
+                            mvn sonar:sonar \
+                                ${projects} \
+                                -am \
+                                -DskipTests \
+                                -Dsonar.java.binaries=target/classes \
+                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                        """
+                    }
+                }
+            }
+        }
+
         stage('Snyk Security Scan') {
             // when {
             //     expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
