@@ -322,9 +322,9 @@ pipeline {
         //  PHASE 3 — SECURITY SCAN
         // ===================================================================
         stage('Snyk Security Scan') {
-            when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
-            }
+            // when {
+            //     expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+            // }
             steps {
                 script {
                     def allChanged = []
