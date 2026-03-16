@@ -356,6 +356,7 @@ pipeline {
                                     monitorProjectOnBuild: true,
                                     additionalArguments: '--all-projects'
                                 )
+                            }
                         }
                     }
                 }
