@@ -356,6 +356,13 @@ pipeline {
                                     java -version
                                     which mvn  || true
                                     mvn -version
+                                    # Đảm bảo có mvnw và có quyền execute cho Snyk Maven plugin
+                                    if [ -f "../mvnw" ] && [ ! -f "./mvnw" ]; then
+                                      cp ../mvnw ./mvnw
+                                    fi
+                                    if [ -f "./mvnw" ]; then
+                                      chmod +x ./mvnw || true
+                                    fi
                                 '''
                                 snykSecurity(
                                     snykInstallation: 'snyk',
