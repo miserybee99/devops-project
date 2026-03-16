@@ -102,7 +102,6 @@ pipeline {
                     def changedFrontend = [] as Set
 
                     def rootPomChanged = changedFiles.any { it == 'pom.xml' }
-
                     def commonLibChanged = changedFiles.any { it.startsWith('common-library/') } || rootPomChanged
 
                     if (commonLibChanged) {
@@ -111,13 +110,10 @@ pipeline {
 
                     for (file in changedFiles) {
                         def service = allServices.find { file.startsWith("${it}/") }
-                        if (service) {
-                            changedBackend.add(service)
-                        }
+                        if (service) changedBackend.add(service)
+
                         def frontend = frontendServices.find { file.startsWith("${it}/") }
-                        if (frontend) {
-                            changedFrontend.add(frontend)
-                        }
+                        if (frontend) changedFrontend.add(frontend)
                     }
 
                     env.CHANGED_BACKEND_SERVICES  = changedBackend ? changedBackend.toList().join(',') : ''
@@ -143,7 +139,6 @@ pipeline {
                         script {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
                             def projects = services.collect { "-pl ${it}" }.join(' ')
-
                             sh """
                                 mvn test \
                                     ${projects} \
@@ -157,9 +152,9 @@ pipeline {
                         always {
                             junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
                             jacoco(
-                                execPattern:   '**/target/jacoco.exec',
-                                classPattern:  '**/target/classes',
-                                sourcePattern: '**/src/main/java',
+                                execPattern:      '**/target/jacoco.exec',
+                                classPattern:     '**/target/classes',
+                                sourcePattern:    '**/src/main/java',
                                 exclusionPattern: '**/config/**,**/exception/**,**/constants/**,**/*Application.class'
                             )
                         }
@@ -171,7 +166,6 @@ pipeline {
                         script {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
                             def projects = services.collect { "-pl ${it}" }.join(' ')
-
                             sh """
                                 mvn verify \
                                     ${projects} \
@@ -233,7 +227,6 @@ pipeline {
             post {
                 always {
                     junit testResults: '**/junit.xml', allowEmptyResults: true
-
                     publishHTML(target: [
                         reportDir:   'storefront/coverage/lcov-report',
                         reportFiles: 'index.html',
@@ -264,7 +257,6 @@ pipeline {
                         script {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
                             def projects = services.collect { "-pl ${it}" }.join(' ')
-
                             sh """
                                 mvn package \
                                     ${projects} \
@@ -315,11 +307,45 @@ pipeline {
                     }
 
                     for (svc in servicesToBuild) {
-                        def imageName = "yas-${svc}:${tag}"
+                        def imageName   = "yas-${svc}:${tag}"
                         def imageLatest = "yas-${svc}:latest"
                         echo "Building Docker image: ${imageName}"
                         dir(svc) {
                             sh "docker build -t ${imageName} -t ${imageLatest} ."
+                        }
+                    }
+                }
+            }
+        }
+
+        // ===================================================================
+        //  PHASE 3 — SECURITY SCAN
+        // ===================================================================
+        stage('Snyk Security Scan') {
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+            }
+            steps {
+                script {
+                    def allChanged = []
+
+                    if (env.CHANGED_BACKEND_SERVICES) {
+                        allChanged.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
+                    }
+                    if (env.CHANGED_FRONTEND_SERVICES) {
+                        allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
+                    }
+
+                    for (svc in allChanged) {
+                        echo "🔒 Snyk scanning: ${svc}"
+                        dir(svc) {
+                            snykSecurity(
+                                snykInstallation: 'snyk',
+                                snykTokenId: 'snyk-token',
+                                failOnIssues: false,
+                                monitorProjectOnBuild: true,
+                                additionalArguments: '--all-projects'
+                            )
                         }
                     }
                 }
@@ -333,10 +359,10 @@ pipeline {
             cleanWs()
         }
         success {
-            echo "Pipeline completed successfully."
+            echo "✅ Pipeline completed successfully."
         }
         failure {
-            echo "Pipeline failed — check the test reports and logs above."
+            echo "❌ Pipeline failed — check the test reports and logs above."
         }
     }
 }
