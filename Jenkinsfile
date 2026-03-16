@@ -349,12 +349,20 @@ pipeline {
                                 "JAVA_HOME=${env.JAVA_HOME}",
                                 "PATH=${env.JAVA_HOME}/bin:${env.PATH}"
                             ]) {
+                                sh '''
+                                    set -eux
+                                    echo "JAVA_HOME=$JAVA_HOME"
+                                    which java || true
+                                    java -version
+                                    which mvn  || true
+                                    mvn -version
+                                '''
                                 snykSecurity(
                                     snykInstallation: 'snyk',
                                     snykTokenId: 'snyk-token',
                                     failOnIssues: false,
                                     monitorProjectOnBuild: true,
-                                    additionalArguments: '--all-projects'
+                                    additionalArguments: '--all-projects -d'
                                 )
                             }
                         }
