@@ -249,6 +249,24 @@ class MediaServiceUnitTest {
     }
 
     @Test
+    void getFile_whenMediaNameMatches_thenReturnContent() {
+        media.setFileName("file");
+        media.setMediaType("image/jpeg");
+        media.setFilePath("/tmp/file");
+
+        when(mediaRepository.findById(1L)).thenReturn(Optional.of(media));
+
+        java.io.InputStream mockStream = new java.io.ByteArrayInputStream("data".getBytes());
+        when(fileSystemRepository.getFile("/tmp/file")).thenReturn(mockStream);
+
+        MediaDto result = mediaService.getFile(1L, "file");
+
+        assertNotNull(result);
+        assertNotNull(result.getContent());
+        assertEquals(org.springframework.http.MediaType.IMAGE_JPEG, result.getMediaType());
+    }
+
+    @Test
     void getFileByIds() {
         // Given
         var ip15 = getMedia(-1L, "Iphone 15");
