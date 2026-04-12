@@ -1,13 +1,14 @@
-// For Testcontainers (recommendation service): Jenkins agent needs Docker.
-// - If Jenkins runs in Docker: start container with -v /var/run/docker.sock:/var/run/docker.sock and same user/group as host docker.
-// - If Jenkins runs on host: install Docker and add the Jenkins process user to the docker group (e.g. usermod -aG docker jenkins).
+// For Testcontainers + Build & Push: agent cần truy cập Docker API.
+// - Jenkins trong Docker: mount -v /var/run/docker.sock:/var/run/docker.sock và --group-add $(getent group docker | cut -d: -f3) để user jenkins đọc/ghi socket.
+// - Image jenkins/jenkins:lts không có lệnh `docker` (CLI): pipeline tải Docker static client vào .tools/docker (Setup Tools).
+// - Jenkins trên host: cài Docker và thêm user jenkins vào nhóm docker.
 pipeline {
     agent any
 
     environment {
         JAVA_HOME = "${WORKSPACE}/.tools/jdk-21"
         MAVEN_HOME = "${WORKSPACE}/.tools/maven"
-        PATH = "${WORKSPACE}/.tools/jdk-21/bin:${WORKSPACE}/.tools/maven/bin:${env.PATH}"
+        PATH = "${WORKSPACE}/.tools/docker:${WORKSPACE}/.tools/jdk-21/bin:${WORKSPACE}/.tools/maven/bin:${env.PATH}"
     }
 
     parameters {
@@ -37,8 +38,25 @@ pipeline {
                         rm -f /tmp/maven.tar.gz
                     fi
 
+                    # Docker CLI (static) — image jenkins/jenkins:lts không có binary `docker`; build/push cần CLI + socket.
+                    DOCKER_CLI_VER=29.3.0
+                    if [ ! -x ".tools/docker/docker" ]; then
+                        ARCH=$(uname -m)
+                        case "$ARCH" in
+                            x86_64) DARCH=x86_64 ;;
+                            aarch64) DARCH=aarch64 ;;
+                            *) echo "Unsupported arch for Docker CLI: $ARCH"; exit 1 ;;
+                        esac
+                        echo "Installing Docker CLI ${DOCKER_CLI_VER} (${DARCH})..."
+                        rm -rf .tools/docker
+                        curl -fsSL "https://download.docker.com/linux/static/stable/${DARCH}/docker-${DOCKER_CLI_VER}.tgz" -o /tmp/docker-cli.tgz
+                        tar -xzf /tmp/docker-cli.tgz -C .tools
+                        rm -f /tmp/docker-cli.tgz
+                    fi
+
                     java -version
                     mvn -version
+                    docker version --format 'docker client={{.Client.Version}}' 2>/dev/null || docker version
                 '''
             }
         }
