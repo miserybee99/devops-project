@@ -39,7 +39,7 @@ pipeline {
         string(
             name: 'BRANCH',
             defaultValue: 'main',
-            description: 'Branch có image đã build CI (vd dev_tax_service). Các service khác dùng baseline.'
+            description: 'Nhánh Git để checkout workspace + lấy SHA image CI (phải trùng nhánh bạn đã push code/k8s).'
         )
         string(
             name: 'NAMESPACE',
@@ -77,9 +77,14 @@ pipeline {
                     if (params.GIT_CREDENTIALS_ID?.trim()) {
                         urc.credentialsId = params.GIT_CREDENTIALS_ID.trim()
                     }
+                    def coBranch = (params.BRANCH ?: 'main').trim()
+                    if (!coBranch) {
+                        error('Tham số BRANCH không được để trống (Checkout cần biết nhánh để clone).')
+                    }
+                    echo "Checkout Git branch: ${coBranch} (workspace phải trùng nhánh có file k8s/dev/... nếu bạn push lên đó)"
                     checkout([
                         $class: 'GitSCM',
-                        branches: [[name: '*/main']],
+                        branches: [[name: "*/${coBranch}"]],
                         doGenerateSubmoduleConfigurations: false,
                         extensions: [],
                         submoduleCfg: [],
