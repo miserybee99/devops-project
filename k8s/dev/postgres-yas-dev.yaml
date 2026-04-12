@@ -2,6 +2,7 @@
 # Tạo nhiều database cho các microservice YAS dùng spring.datasource (admin/admin).
 # Chỉ chạy init script khi volume PGDATA trống (pod/postgres mới).
 # Nếu đổi namespace: thay toàn bộ "yas-dev" bên dưới hoặc sed trước khi kubectl apply.
+# test gitops 
 
 apiVersion: v1
 kind: Secret
