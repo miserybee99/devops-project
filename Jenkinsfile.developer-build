@@ -306,6 +306,7 @@ spec:
                     ]
                     def ctx = servletPaths.containsKey(svcParam) ? servletPaths[svcParam] : "/${svcParam}"
                     def healthPath = (ctx != null && ctx != '') ? "${ctx}/actuator/health" : '/actuator/health'
+                    def swaggerUiPath = (ctx != null && ctx != '') ? "${ctx}/swagger-ui/index.html" : '/swagger-ui/index.html'
 
                     def np = sh(
                         script: "kubectl get svc ${svcParam} -n ${ns} -o jsonpath='{.spec.ports[0].nodePort}'",
@@ -327,7 +328,8 @@ Namespace        : ${ns}
 NodePort         : ${np}
 Gợi ý /etc/hosts : ${nodeIp}   yas-dev.local
 Thử health       : curl -sS -o /dev/null -w '%{http_code}\\n' http://yas-dev.local:${np}${healthPath}
-(Nếu 401/403: cần Keycloak — spring.security.oauth2.resourceserver.jwt.issuer-uri=http://identity/realms/Yas)
+Swagger UI       : http://yas-dev.local:${np}${swaggerUiPath}
+(Nếu 401/403 API hoặc Authorize Swagger: cần Keycloak — spring.security.oauth2.resourceserver.jwt.issuer-uri=http://identity/realms/Yas)
 ============================================
 """
                     }

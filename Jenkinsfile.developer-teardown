@@ -1,0 +1,128 @@
+// developer_teardown — mục 5: xóa triển khai tương ứng developer_build (kubectl, không Helm).
+// Dán toàn bộ file vào Jenkins: New Item → Pipeline → tên vd "developer_teardown" → Pipeline script từ SCM hoặc paste.
+//
+// Hyperlink trong mô tả job (Jenkins UI): Job → Configure → Description → bật "Safe HTML" nếu có plugin,
+//   hoặc dùng Markdown; với Job Builder (JJB) xem: https://community.jenkins.io/t/how-to-add-hyperlink-using-jenkins-job-builder/7091
+//
+// Agent: kubeconfig như Jenkins đang dùng cho developer_build; kubectl thiếu sẽ tải vào workspace.
+
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'NAMESPACE',
+            defaultValue: 'yas-dev',
+            description: 'Namespace chứa deploy mục 4 (trùng NAMESPACE của developer_build).'
+        )
+        booleanParam(
+            name: 'CONFIRM_DELETE',
+            defaultValue: false,
+            description: 'BẮT BUỘC = true để thực hiện xóa. false = chỉ kiểm tra cluster, không xóa gì.'
+        )
+        booleanParam(
+            name: 'DELETE_NAMESPACE',
+            defaultValue: false,
+            description: 'true = kubectl delete namespace (xóa hết object trong ns, kể cả thứ không do mục 4 tạo). false = chỉ xóa workload Postgres + 12 service lab.'
+        )
+    }
+
+    stages {
+
+        stage('Ensure kubectl') {
+            steps {
+                sh '''
+                    if command -v kubectl >/dev/null 2>&1; then
+                        echo "kubectl: $(command -v kubectl)"
+                        exit 0
+                    fi
+                    ARCH=$(uname -m)
+                    case "$ARCH" in
+                        x86_64) KARCH=amd64 ;;
+                        aarch64|arm64) KARCH=arm64 ;;
+                        *) echo "Unsupported arch: $ARCH"; exit 1 ;;
+                    esac
+                    KVER=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+                    echo "Downloading kubectl ${KVER} (${KARCH})..."
+                    curl -fsSL -o "${WORKSPACE}/kubectl" "https://dl.k8s.io/release/${KVER}/bin/linux/${KARCH}/kubectl"
+                    chmod +x "${WORKSPACE}/kubectl"
+                    "${WORKSPACE}/kubectl" version --client
+                '''
+            }
+        }
+
+        stage('Verify Kubernetes API') {
+            steps {
+                withEnv(["PATH=${env.WORKSPACE}:${env.PATH}"]) {
+                    sh '''
+                        set +e
+                        CI_OUT=$(kubectl cluster-info 2>&1)
+                        CI_RC=$?
+                        set -e
+                        echo "cluster-info exit=$CI_RC"
+                        echo "$CI_OUT"
+                        if [ "$CI_RC" -ne 0 ]; then
+                            exit 1
+                        fi
+                    '''
+                }
+            }
+        }
+
+        stage('Teardown (xóa mục 4)') {
+            when {
+                expression { return params.CONFIRM_DELETE }
+            }
+            steps {
+                withEnv(["PATH=${env.WORKSPACE}:${env.PATH}"]) {
+                    script {
+                        def ns = params.NAMESPACE.trim()
+                        if (!ns) {
+                            error('NAMESPACE không được để trống.')
+                        }
+                        def services = [
+                            'postgres', 'tax', 'cart', 'customer', 'inventory', 'location', 'media',
+                            'order', 'payment', 'product', 'promotion', 'rating', 'webhook'
+                        ]
+                        def list = services.join(' ')
+
+                        if (params.DELETE_NAMESPACE) {
+                            echo "WARN: Xóa toàn bộ namespace: ${ns}"
+                            sh "kubectl delete namespace ${ns} --wait=true"
+                        } else {
+                            sh "kubectl delete deployment -n ${ns} --ignore-not-found ${list}"
+                            sh "kubectl delete service -n ${ns} --ignore-not-found ${list}"
+                            sh "kubectl delete secret -n ${ns} --ignore-not-found postgres-dev"
+                            sh "kubectl delete configmap -n ${ns} --ignore-not-found postgres-initdb"
+                            echo "Đã xóa Deployment/Service/Secret/ConfigMap lab trong namespace ${ns} (namespace vẫn tồn tại — chạy lại developer_build khi cần)."
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Bỏ qua (chưa xác nhận)') {
+            when {
+                expression { return !params.CONFIRM_DELETE }
+            }
+            steps {
+                echo 'Không xóa gì: hãy chạy lại job với CONFIRM_DELETE=true (Build with Parameters).'
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                echo """
+========== Mục 5 — gợi ý mô tả job có link ==========
+Trong Jenkins: Job → Configure → Description, thêm HTML ví dụ:
+  <a href="https://github.com/miserybee99/devops-project">Repo devops-project</a>
+JJB / Job Builder: xem thảo luận hyperlink —
+  https://community.jenkins.io/t/how-to-add-hyperlink-using-jenkins-job-builder/7091
+====================================================
+"""
+            }
+        }
+    }
+}
