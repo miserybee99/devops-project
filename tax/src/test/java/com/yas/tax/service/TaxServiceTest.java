@@ -18,7 +18,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 // test job CD 
-// test domain 
 @SpringBootTest(classes = TaxRateService.class)
 public class TaxServiceTest {
     @MockitoBean
