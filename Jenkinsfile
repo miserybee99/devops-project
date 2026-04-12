@@ -302,13 +302,14 @@ pipeline {
             }
         }
 
-        stage('Build Docker Images') {
+        stage('Build & Push Docker Images') {
             when {
                 expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
             }
             steps {
                 script {
-                    def tag = "${env.BUILD_NUMBER}"
+                    def tag = env.GIT_COMMIT.take(12)
+
                     def allChanged = []
 
                     if (env.CHANGED_BACKEND_SERVICES) {
@@ -322,12 +323,28 @@ pipeline {
                         fileExists("${svc}/Dockerfile")
                     }
 
-                    for (svc in servicesToBuild) {
-                        def imageName   = "yas-${svc}:${tag}"
-                        def imageLatest = "yas-${svc}:latest"
-                        echo "Building Docker image: ${imageName}"
-                        dir(svc) {
-                            sh "docker build -t ${imageName} -t ${imageLatest} ."
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        def registry = "${env.DOCKER_USER}/yas"
+
+                        sh '''
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        '''
+
+                        for (svc in servicesToBuild) {
+                            def imageTag = "${registry}:${svc}-${tag}"
+
+                            echo "🚀 Building & pushing: ${imageTag}"
+
+                            dir(svc) {
+                                sh """
+                                    docker build -t ${imageTag} .
+                                    docker push ${imageTag}
+                                """
+                            }
                         }
                     }
                 }
