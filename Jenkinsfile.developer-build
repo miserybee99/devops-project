@@ -1,11 +1,23 @@
-// CD job: developer_build — paste nội dung file này vào Jenkins (Pipeline script from SCM: Jenkinsfile.developer-build)
-// Yêu cầu agent: git, kubectl (kubeconfig trỏ cluster), quyền deploy namespace
-// Credential dockerhub (usernamePassword, id: dockerhub) — dùng username để ghép image giống CI mục 3
+// developer_build — copy TOÀN BỘ file vào Jenkins: Pipeline script.
+// Agent: git + curl + kubeconfig. kubectl thiếu sẽ được tải vào workspace.
+// Postgres: APPLY_POSTGRES=true → apply k8s/dev/postgres-yas-dev.yaml (database trùng tên service). Namespace mặc định yas-dev (sed nếu đổi NAMESPACE).
+// Các service Spring vẫn cần Keycloak (issuer http://identity/realms/Yas) — nếu Pod crash sau khi DB OK, triển khai Keycloak hoặc chỉnh DNS identity trong cluster.
+// Credentials: dockerhub. Repo private: GIT_CREDENTIALS_ID.
 
 pipeline {
     agent any
 
     parameters {
+        string(
+            name: 'GIT_URL',
+            defaultValue: 'https://github.com/miserybee99/devops-project.git',
+            description: 'URL Git HTTPS (sửa nếu repo khác). Repo public có thể để trống GIT_CREDENTIALS_ID.'
+        )
+        string(
+            name: 'GIT_CREDENTIALS_ID',
+            defaultValue: '',
+            description: 'Jenkins credential id để clone (username/password hoặc token). Để trống nếu repo public.'
+        )
         choice(
             name: 'SERVICE',
             choices: [
@@ -17,18 +29,12 @@ pipeline {
                 'media',
                 'order',
                 'payment',
-                'payment-paypal',
                 'product',
                 'promotion',
                 'rating',
-                'recommendation',
-                'search',
-                'webhook',
-                'sampledata',
-                'backoffice-bff',
-                'storefront-bff'
+                'webhook'
             ],
-            description: 'Service đang dev (image từ BRANCH + tag CI mục 3)'
+            description: 'Service đang dev (chỉ các backend JDBC + Postgres lab; không gồm search/kafka, BFF/redis, sampledata, …)'
         )
         string(
             name: 'BRANCH',
@@ -38,7 +44,17 @@ pipeline {
         string(
             name: 'NAMESPACE',
             defaultValue: 'yas-dev',
-            description: 'Namespace Kubernetes'
+            description: 'Namespace Kubernetes (phải tồn tại trừ khi bật CREATE_NAMESPACE và account có quyền tạo ns)'
+        )
+        booleanParam(
+            name: 'CREATE_NAMESPACE',
+            defaultValue: false,
+            description: 'true = thử kubectl create namespace nếu chưa có. false = bắt buộc namespace đã tồn tại (tránh lỗi Forbidden trên Jenkins in-cluster).'
+        )
+        booleanParam(
+            name: 'APPLY_POSTGRES',
+            defaultValue: true,
+            description: 'true = kubectl apply k8s/dev/postgres-yas-dev.yaml + đợi Postgres (database cho từng service). false = bỏ qua (bạn tự lo DB).'
         )
         booleanParam(
             name: 'USE_GHCR_BASELINE',
@@ -56,7 +72,21 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                checkout scm
+                script {
+                    def urc = [url: params.GIT_URL.trim()]
+                    if (params.GIT_CREDENTIALS_ID?.trim()) {
+                        urc.credentialsId = params.GIT_CREDENTIALS_ID.trim()
+                    }
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: '*/main']],
+                        doGenerateSubmoduleConfigurations: false,
+                        extensions: [],
+                        submoduleCfg: [],
+                        userRemoteConfigs: [urc]
+                    ])
+                    sh 'git fetch origin --prune'
+                }
             }
         }
 
@@ -64,40 +94,128 @@ pipeline {
             steps {
                 script {
                     sh 'git fetch origin --prune'
+                    def branch = (params.BRANCH ?: 'main').trim()
+                    if (!branch) {
+                        error('Tham số BRANCH không được để trống (hoặc chỉ khoảng trắng).')
+                    }
+                    env.EFFECTIVE_BRANCH = branch
                     def shaFull = sh(
-                        script: "git ls-remote origin refs/heads/${params.BRANCH} | cut -f1",
+                        script: "git ls-remote origin \"refs/heads/${branch}\" | cut -f1",
                         returnStdout: true
                     ).trim()
                     if (!shaFull || shaFull.length() < 12) {
-                        error("Không lấy được SHA cho branch '${params.BRANCH}'. Kiểm tra branch đã push và remote 'origin'.")
+                        error("Không lấy được SHA cho branch '${branch}'. Kiểm tra branch đã push và remote 'origin'.")
                     }
                     env.DEV_IMAGE_TAG = shaFull.take(12)
-                    echo "SERVICE=${params.SERVICE} BRANCH=${params.BRANCH} DEV_IMAGE_TAG(12)=${env.DEV_IMAGE_TAG}"
+                    echo "SERVICE=${params.SERVICE} BRANCH=${branch} DEV_IMAGE_TAG(12)=${env.DEV_IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Ensure kubectl') {
+            steps {
+                sh '''
+                    if command -v kubectl >/dev/null 2>&1; then
+                        echo "kubectl: $(command -v kubectl)"
+                        exit 0
+                    fi
+                    ARCH=$(uname -m)
+                    case "$ARCH" in
+                        x86_64) KARCH=amd64 ;;
+                        aarch64|arm64) KARCH=arm64 ;;
+                        *) echo "Unsupported arch: $ARCH"; exit 1 ;;
+                    esac
+                    KVER=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+                    echo "Downloading kubectl ${KVER} (${KARCH})..."
+                    curl -fsSL -o "${WORKSPACE}/kubectl" "https://dl.k8s.io/release/${KVER}/bin/linux/${KARCH}/kubectl"
+                    chmod +x "${WORKSPACE}/kubectl"
+                    "${WORKSPACE}/kubectl" version --client
+                '''
+            }
+        }
+
+        stage('Verify Kubernetes API') {
+            steps {
+                withEnv(["PATH=${env.WORKSPACE}:${env.PATH}"]) {
+                    sh '''
+                        set +e
+                        CI_OUT=$(kubectl cluster-info 2>&1)
+                        CI_RC=$?
+                        set -e
+                        echo "cluster-info exit=$CI_RC"
+                        echo "$CI_OUT"
+                        if [ "$CI_RC" -ne 0 ]; then
+                            echo "----- debug kube (Jenkins container) -----"
+                            echo "KUBECONFIG=${KUBECONFIG:-<unset>}"
+                            ls -la /var/jenkins_home/.kube/ 2>/dev/null || echo "Không có /var/jenkins_home/.kube"
+                            echo "----- cluster.server (phải là https://... Minikube, KHÔNG phải Jenkins :8080) -----"
+                            kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null; echo
+                            echo "----- current-context -----"
+                            kubectl config current-context 2>/dev/null || true
+                            exit 1
+                        fi
+                    '''
                 }
             }
         }
 
         stage('Deploy (kubectl, không Helm)') {
             steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: params.DOCKERHUB_CREDENTIALS_ID,
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
+                withEnv(["PATH=${env.WORKSPACE}:${env.PATH}"]) {
+                    script {
+                        withCredentials([usernamePassword(
+                            credentialsId: params.DOCKERHUB_CREDENTIALS_ID.trim(),
+                            usernameVariable: 'DOCKER_USER',
+                            passwordVariable: 'DOCKER_PASS'
+                        )]) {
+                        def ns = params.NAMESPACE.trim()
+                        def svcParam = params.SERVICE.trim()
                         def services = [
                             'tax', 'cart', 'customer', 'inventory', 'location', 'media',
-                            'order', 'payment', 'payment-paypal', 'product', 'promotion', 'rating',
-                            'recommendation', 'search', 'webhook', 'sampledata',
-                            'backoffice-bff', 'storefront-bff'
+                            'order', 'payment', 'product', 'promotion', 'rating', 'webhook'
                         ]
 
-                        sh "kubectl get namespace ${params.NAMESPACE} >/dev/null 2>&1 || kubectl create namespace ${params.NAMESPACE}"
+                        def httpPorts = [
+                            tax: 8091, cart: 8084, customer: 8088, inventory: 8090, location: 8086,
+                            media: 8083, order: 8085, payment: 8081, product: 8080, promotion: 8092,
+                            rating: 8089, webhook: 8092
+                        ]
+
+                        def nsExists = sh(script: "kubectl get namespace ${ns}", returnStatus: true) == 0
+                        if (!nsExists) {
+                            if (params.CREATE_NAMESPACE) {
+                                def cr = sh(script: "kubectl create namespace ${ns}", returnStatus: true)
+                                if (cr != 0) {
+                                    error("Không tạo được namespace '${ns}' (thường là Forbidden — RBAC). Chạy thủ công trên máy admin: kubectl create namespace ${ns}")
+                                }
+                            } else {
+                                error("""Namespace '${ns}' không có trên cluster mà kubectl TRONG JENKINS đang dùng (hoặc lệnh get đã fail vì API sai).
+
+Nếu log có HTML "Authentication required" / "/login" → kubeconfig trong container Jenkins đang trỏ NHẦM (thường là Jenkins :8080), không phải API Minikube trên máy Linux của bạn.
+
+Cách xử lý:
+  1) Vào container Jenkins: kubectl config view --minify | grep server — phải là https://<IP>:8443 (Minikube), không phải URL Jenkins.
+  2) Mount/copy kubeconfig từ host: docker run ... -v ~/.kube:/var/jenkins_home/.kube:ro
+  3) Nếu server là https://127.0.0.1:xxxxx: từ trong Docker, 127.0.0.1 là chính container — sửa thành IP máy host hoặc host.docker.internal + đúng port Minikube (minikube ip; kiểm tra ~/.kube/config sau khi minikube start).
+
+Nếu API đúng mà vẫn báo thiếu namespace:
+  A) kubectl create namespace ${ns} trên ĐÚNG cluster đó
+  B) Đổi NAMESPACE / bật CREATE_NAMESPACE=true nếu có quyền.""")
+                            }
+                        }
+
+                        if (params.APPLY_POSTGRES) {
+                            sh """
+                                sed 's/namespace: yas-dev/namespace: ${ns}/g' k8s/dev/postgres-yas-dev.yaml > k8s-dev-postgres-resolved.yaml
+                                kubectl apply -f k8s-dev-postgres-resolved.yaml
+                            """
+                            sh "kubectl rollout status deployment/postgres -n ${ns} --timeout=180s"
+                        }
 
                         def hubUser = sh(script: 'printf %s "$DOCKER_USER"', returnStdout: true).trim()
 
                         for (svc in services) {
-                            def isDev = (svc == params.SERVICE)
+                            def isDev = (svc == svcParam)
                             def image
                             if (isDev) {
                                 image = "${hubUser}/yas:${svc}-${env.DEV_IMAGE_TAG}"
@@ -108,15 +226,15 @@ pipeline {
                             }
 
                             def svcType = isDev ? 'NodePort' : 'ClusterIP'
+                            def httpPort = httpPorts[svc] ?: 8080
 
-                            echo "Deploy ${svc} -> ${image} (Service: ${svcType})"
+                            echo "Deploy ${svc} -> ${image} (Service: ${svcType}, containerPort: ${httpPort})"
 
-                            // Deployment + Service tối thiểu (port 8080 như Spring Boot YAS). Ứng dụng thật cần thêm env/ConfigMap/Secret.
                             writeFile file: "k8s-dev-${svc}.yaml", text: """apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${svc}
-  namespace: ${params.NAMESPACE}
+  namespace: ${ns}
   labels:
     app: ${svc}
 spec:
@@ -134,13 +252,22 @@ spec:
           image: ${image}
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8080
+            - containerPort: ${httpPort}
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres.${ns}.svc.cluster.local:5432/${svc}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: admin
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: admin
+            - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              value: health,prometheus
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${svc}
-  namespace: ${params.NAMESPACE}
+  namespace: ${ns}
 spec:
   type: ${svcType}
   selector:
@@ -148,13 +275,14 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 8080
+      targetPort: ${httpPort}
       protocol: TCP
 """
                             sh "kubectl apply -f k8s-dev-${svc}.yaml"
                         }
 
                         env.DEPLOYED_HUB_USER = hubUser
+                        }
                     }
                 }
             }
@@ -162,9 +290,20 @@ spec:
 
         stage('Hướng dẫn truy cập (hosts + NodePort)') {
             steps {
-                script {
+                withEnv(["PATH=${env.WORKSPACE}:${env.PATH}"]) {
+                    script {
+                    def ns = params.NAMESPACE.trim()
+                    def svcParam = params.SERVICE.trim()
+                    def servletPaths = [
+                        tax: '/tax', cart: '/cart', customer: '/customer', inventory: '/inventory',
+                        location: '/location', media: '', order: '/order', payment: '/payment',
+                        product: '/product', promotion: '/promotion', rating: '/rating', webhook: '/webhook'
+                    ]
+                    def ctx = servletPaths.containsKey(svcParam) ? servletPaths[svcParam] : "/${svcParam}"
+                    def healthPath = (ctx != null && ctx != '') ? "${ctx}/actuator/health" : '/actuator/health'
+
                     def np = sh(
-                        script: "kubectl get svc ${params.SERVICE} -n ${params.NAMESPACE} -o jsonpath='{.spec.ports[0].nodePort}'",
+                        script: "kubectl get svc ${svcParam} -n ${ns} -o jsonpath='{.spec.ports[0].nodePort}'",
                         returnStdout: true
                     ).trim()
                     def nodeIp = sh(
@@ -177,15 +316,16 @@ spec:
 
                     echo """
 ========== Developer test (mục 4) ==========
-Service đang dev : ${params.SERVICE}
-Image (Hub)      : ${env.DEPLOYED_HUB_USER}/yas:${params.SERVICE}-${env.DEV_IMAGE_TAG}
-Namespace        : ${params.NAMESPACE}
+Service đang dev : ${svcParam}
+Image (Hub)      : ${env.DEPLOYED_HUB_USER}/yas:${svcParam}-${env.DEV_IMAGE_TAG}
+Namespace        : ${ns}
 NodePort         : ${np}
 Gợi ý /etc/hosts : ${nodeIp}   yas-dev.local
-Thử HTTP         : curl -sS -o /dev/null -w '%{http_code}\\n' http://yas-dev.local:${np}/actuator/health || curl -sS -I http://yas-dev.local:${np}/
+Thử health       : curl -sS -o /dev/null -w '%{http_code}\\n' http://yas-dev.local:${np}${healthPath}
+(Nếu 401/403: cần Keycloak — spring.security.oauth2.resourceserver.jwt.issuer-uri=http://identity/realms/Yas)
 ============================================
-Lưu ý: Pod có thể CrashLoop nếu thiếu DB/Kafka/Keycloak — phần này chỉ minh họa Deployment + image đúng tag.
 """
+                    }
                 }
             }
         }

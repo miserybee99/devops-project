@@ -1,0 +1,78 @@
+# PostgreSQL tối thiểu cho namespace yas-dev (lab developer_build).
+# Tạo nhiều database cho các microservice YAS dùng spring.datasource (admin/admin).
+# Chỉ chạy init script khi volume PGDATA trống (pod/postgres mới).
+# Nếu đổi namespace: thay toàn bộ "yas-dev" bên dưới hoặc sed trước khi kubectl apply.
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-dev
+  namespace: yas-dev
+stringData:
+  POSTGRES_USER: admin
+  POSTGRES_PASSWORD: admin
+  POSTGRES_DB: postgres
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-initdb
+  namespace: yas-dev
+data:
+  01-create-databases.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for db in tax cart customer inventory location media order payment promotion rating product webhook; do
+      exists="$(psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname='${db}'")"
+      if [[ "${exists}" != "1" ]]; then
+        psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d postgres -c "CREATE DATABASE \"${db}\";"
+      fi
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: yas-dev
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: postgres-dev
+          volumeMounts:
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: initdb
+          configMap:
+            name: postgres-initdb
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: yas-dev
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  selector:
+    app: postgres
