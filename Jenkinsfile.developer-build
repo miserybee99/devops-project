@@ -1,0 +1,193 @@
+// CD job: developer_build — paste nội dung file này vào Jenkins (Pipeline script from SCM: Jenkinsfile.developer-build)
+// Yêu cầu agent: git, kubectl (kubeconfig trỏ cluster), quyền deploy namespace
+// Credential dockerhub (usernamePassword, id: dockerhub) — dùng username để ghép image giống CI mục 3
+
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'SERVICE',
+            choices: [
+                'tax',
+                'cart',
+                'customer',
+                'inventory',
+                'location',
+                'media',
+                'order',
+                'payment',
+                'payment-paypal',
+                'product',
+                'promotion',
+                'rating',
+                'recommendation',
+                'search',
+                'webhook',
+                'sampledata',
+                'backoffice-bff',
+                'storefront-bff'
+            ],
+            description: 'Service đang dev (image từ BRANCH + tag CI mục 3)'
+        )
+        string(
+            name: 'BRANCH',
+            defaultValue: 'main',
+            description: 'Branch có image đã build CI (vd dev_tax_service). Các service khác dùng baseline.'
+        )
+        string(
+            name: 'NAMESPACE',
+            defaultValue: 'yas-dev',
+            description: 'Namespace Kubernetes'
+        )
+        booleanParam(
+            name: 'USE_GHCR_BASELINE',
+            defaultValue: true,
+            description: 'true = service không dev kéo ghcr.io/nashtech-garage/yas-<svc>:latest. false = kéo DOCKERHUB_USER/yas:<svc>-latest'
+        )
+        string(
+            name: 'DOCKERHUB_CREDENTIALS_ID',
+            defaultValue: 'dockerhub',
+            description: 'Jenkins credentials id (usernamePassword) cho Docker Hub'
+        )
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Resolve commit tag (mục 3)') {
+            steps {
+                script {
+                    sh 'git fetch origin --prune'
+                    def shaFull = sh(
+                        script: "git ls-remote origin refs/heads/${params.BRANCH} | cut -f1",
+                        returnStdout: true
+                    ).trim()
+                    if (!shaFull || shaFull.length() < 12) {
+                        error("Không lấy được SHA cho branch '${params.BRANCH}'. Kiểm tra branch đã push và remote 'origin'.")
+                    }
+                    env.DEV_IMAGE_TAG = shaFull.take(12)
+                    echo "SERVICE=${params.SERVICE} BRANCH=${params.BRANCH} DEV_IMAGE_TAG(12)=${env.DEV_IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Deploy (kubectl, không Helm)') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: params.DOCKERHUB_CREDENTIALS_ID,
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        def services = [
+                            'tax', 'cart', 'customer', 'inventory', 'location', 'media',
+                            'order', 'payment', 'payment-paypal', 'product', 'promotion', 'rating',
+                            'recommendation', 'search', 'webhook', 'sampledata',
+                            'backoffice-bff', 'storefront-bff'
+                        ]
+
+                        sh "kubectl get namespace ${params.NAMESPACE} >/dev/null 2>&1 || kubectl create namespace ${params.NAMESPACE}"
+
+                        def hubUser = sh(script: 'printf %s "$DOCKER_USER"', returnStdout: true).trim()
+
+                        for (svc in services) {
+                            def isDev = (svc == params.SERVICE)
+                            def image
+                            if (isDev) {
+                                image = "${hubUser}/yas:${svc}-${env.DEV_IMAGE_TAG}"
+                            } else if (params.USE_GHCR_BASELINE) {
+                                image = "ghcr.io/nashtech-garage/yas-${svc}:latest"
+                            } else {
+                                image = "${hubUser}/yas:${svc}-latest"
+                            }
+
+                            def svcType = isDev ? 'NodePort' : 'ClusterIP'
+
+                            echo "Deploy ${svc} -> ${image} (Service: ${svcType})"
+
+                            // Deployment + Service tối thiểu (port 8080 như Spring Boot YAS). Ứng dụng thật cần thêm env/ConfigMap/Secret.
+                            writeFile file: "k8s-dev-${svc}.yaml", text: """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${svc}
+  namespace: ${params.NAMESPACE}
+  labels:
+    app: ${svc}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${svc}
+  template:
+    metadata:
+      labels:
+        app: ${svc}
+    spec:
+      containers:
+        - name: ${svc}
+          image: ${image}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${svc}
+  namespace: ${params.NAMESPACE}
+spec:
+  type: ${svcType}
+  selector:
+    app: ${svc}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+"""
+                            sh "kubectl apply -f k8s-dev-${svc}.yaml"
+                        }
+
+                        env.DEPLOYED_HUB_USER = hubUser
+                    }
+                }
+            }
+        }
+
+        stage('Hướng dẫn truy cập (hosts + NodePort)') {
+            steps {
+                script {
+                    def np = sh(
+                        script: "kubectl get svc ${params.SERVICE} -n ${params.NAMESPACE} -o jsonpath='{.spec.ports[0].nodePort}'",
+                        returnStdout: true
+                    ).trim()
+                    def nodeIp = sh(
+                        script: 'kubectl get nodes -o jsonpath="{.items[0].status.addresses[?(@.type==\\"InternalIP\\")].address}"',
+                        returnStdout: true
+                    ).trim()
+                    if (!nodeIp) {
+                        nodeIp = sh(script: 'kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}"', returnStdout: true).trim()
+                    }
+
+                    echo """
+========== Developer test (mục 4) ==========
+Service đang dev : ${params.SERVICE}
+Image (Hub)      : ${env.DEPLOYED_HUB_USER}/yas:${params.SERVICE}-${env.DEV_IMAGE_TAG}
+Namespace        : ${params.NAMESPACE}
+NodePort         : ${np}
+Gợi ý /etc/hosts : ${nodeIp}   yas-dev.local
+Thử HTTP         : curl -sS -o /dev/null -w '%{http_code}\\n' http://yas-dev.local:${np}/actuator/health || curl -sS -I http://yas-dev.local:${np}/
+============================================
+Lưu ý: Pod có thể CrashLoop nếu thiếu DB/Kafka/Keycloak — phần này chỉ minh họa Deployment + image đúng tag.
+"""
+                }
+            }
+        }
+    }
+}
