@@ -38,23 +38,6 @@ pipeline {
                         rm -f /tmp/maven.tar.gz
                     fi
 
-                    if [ ! -d ".tools/node" ]; then
-                        echo "Installing Node.js 22.15.0..."
-                        ARCH=$(uname -m)
-                        case "$ARCH" in
-                            x86_64) NARCH=x64 ;;
-                            aarch64) NARCH=arm64 ;;
-                            *) echo "Unsupported arch for Node.js: $ARCH"; exit 1 ;;
-                        esac
-                        curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${NARCH}.tar.xz" -o /tmp/node.tar.xz
-                        python3 - <<'PY'
-import tarfile
-tarfile.open("/tmp/node.tar.xz", "r:xz").extractall(".tools")
-PY
-                        mv ".tools/node-v22.15.0-linux-${NARCH}" .tools/node
-                        rm -f /tmp/node.tar.xz
-                    fi
-
                     # Docker CLI (static) — image jenkins/jenkins:lts không có binary `docker`; build/push cần CLI + socket.
                     DOCKER_CLI_VER=29.3.0
                     if [ ! -x ".tools/docker/docker" ]; then
@@ -69,6 +52,36 @@ PY
                         curl -fsSL "https://download.docker.com/linux/static/stable/${DARCH}/docker-${DOCKER_CLI_VER}.tgz" -o /tmp/docker-cli.tgz
                         tar -xzf /tmp/docker-cli.tgz -C .tools
                         rm -f /tmp/docker-cli.tgz
+                    fi
+
+                    if [ ! -d ".tools/node" ]; then
+                        echo "Installing Node.js 22.15.0..."
+                        ARCH=$(uname -m)
+                        case "$ARCH" in
+                            x86_64) NARCH=x64 ;;
+                            aarch64) NARCH=arm64 ;;
+                            *) echo "Unsupported arch for Node.js: $ARCH"; exit 1 ;;
+                        esac
+                        curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${NARCH}.tar.xz" -o /tmp/node.tar.xz
+
+                        if command -v xz >/dev/null 2>&1; then
+                            tar -xJf /tmp/node.tar.xz -C .tools
+                        elif command -v python3 >/dev/null 2>&1; then
+                            python3 - <<'PY'
+import tarfile
+tarfile.open("/tmp/node.tar.xz", "r:xz").extractall(".tools")
+PY
+                        else
+                            echo "xz/python3 not found, trying Docker-based extraction..."
+                            docker run --rm \
+                                -v /tmp/node.tar.xz:/tmp/node.tar.xz:ro \
+                                -v "${PWD}/.tools:/work" \
+                                alpine:3.20 sh -lc \
+                                "apk add --no-cache xz tar >/dev/null && tar -xJf /tmp/node.tar.xz -C /work"
+                        fi
+
+                        mv ".tools/node-v22.15.0-linux-${NARCH}" .tools/node
+                        rm -f /tmp/node.tar.xz
                     fi
 
                     java -version
