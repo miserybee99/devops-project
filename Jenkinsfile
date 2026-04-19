@@ -8,7 +8,7 @@ pipeline {
     environment {
         JAVA_HOME = "${WORKSPACE}/.tools/jdk-21"
         MAVEN_HOME = "${WORKSPACE}/.tools/maven"
-        PATH = "${WORKSPACE}/.tools/docker:${WORKSPACE}/.tools/jdk-21/bin:${WORKSPACE}/.tools/maven/bin:${env.PATH}"
+        PATH = "${WORKSPACE}/.tools/docker:${WORKSPACE}/.tools/node/bin:${WORKSPACE}/.tools/jdk-21/bin:${WORKSPACE}/.tools/maven/bin:${env.PATH}"
     }
 
     parameters {
@@ -38,6 +38,20 @@ pipeline {
                         rm -f /tmp/maven.tar.gz
                     fi
 
+                    if [ ! -d ".tools/node" ]; then
+                        echo "Installing Node.js 22.15.0..."
+                        ARCH=$(uname -m)
+                        case "$ARCH" in
+                            x86_64) NARCH=x64 ;;
+                            aarch64) NARCH=arm64 ;;
+                            *) echo "Unsupported arch for Node.js: $ARCH"; exit 1 ;;
+                        esac
+                        curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${NARCH}.tar.xz" -o /tmp/node.tar.xz
+                        tar -xJf /tmp/node.tar.xz -C .tools
+                        mv ".tools/node-v22.15.0-linux-${NARCH}" .tools/node
+                        rm -f /tmp/node.tar.xz
+                    fi
+
                     # Docker CLI (static) — image jenkins/jenkins:lts không có binary `docker`; build/push cần CLI + socket.
                     DOCKER_CLI_VER=29.3.0
                     if [ ! -x ".tools/docker/docker" ]; then
@@ -56,6 +70,8 @@ pipeline {
 
                     java -version
                     mvn -version
+                    node -v
+                    npm -v
                     docker version --format 'docker client={{.Client.Version}}' 2>/dev/null || docker version
                 '''
             }
@@ -160,7 +176,91 @@ pipeline {
         }
 
         // ===================================================================
-        //  PHASE 1 — TEST
+        //  PHASE 1 — CODE QUALITY & SECURITY SCAN
+        // ===================================================================
+        stage('SonarQube Analysis') {
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES }
+            }
+            steps {
+                script {
+                    def modules = env.CHANGED_BACKEND_SERVICES.split(',').toList()
+                    def projects = modules.collect { "-pl ${it}" }.join(' ')
+
+                    sh """
+                        mvn compile \
+                            ${projects} \
+                            -am \
+                            -DskipTests
+                    """
+
+                    withSonarQubeEnv('sornaque') {
+                        sh """
+                            mvn sonar:sonar \
+                                ${projects} \
+                                -am \
+                                -DskipTests \
+                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Snyk Security Scan') {
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+            }
+            steps {
+                script {
+                    def allChanged = []
+
+                    if (env.CHANGED_BACKEND_SERVICES) {
+                        allChanged.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
+                    }
+                    if (env.CHANGED_FRONTEND_SERVICES) {
+                        allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
+                    }
+
+                    for (svc in allChanged) {
+                        echo "🔒 Snyk scanning: ${svc}"
+                        dir(svc) {
+                            // Ép JAVA_HOME và PATH cho Snyk CLI
+                            withEnv([
+                                "JAVA_HOME=${env.JAVA_HOME}",
+                                "PATH=${env.JAVA_HOME}/bin:${env.PATH}"
+                            ]) {
+                                sh '''
+                                    set -eux
+                                    echo "JAVA_HOME=$JAVA_HOME"
+                                    which java || true
+                                    java -version
+                                    which mvn  || true
+                                    mvn -version
+                                    # Đảm bảo có mvnw và có quyền execute cho Snyk Maven plugin
+                                    if [ -f "../mvnw" ] && [ ! -f "./mvnw" ]; then
+                                      cp ../mvnw ./mvnw
+                                    fi
+                                    if [ -f "./mvnw" ]; then
+                                      chmod +x ./mvnw || true
+                                    fi
+                                '''
+                                snykSecurity(
+                                    snykInstallation: 'snyk',
+                                    snykTokenId: 'snyk-token',
+                                    failOnIssues: false,
+                                    monitorProjectOnBuild: true,
+                                    additionalArguments: '--all-projects -d'
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ===================================================================
+        //  PHASE 2 — TEST
         // ===================================================================
         stage('Test') {
             when {
@@ -279,7 +379,7 @@ pipeline {
         }
 
         // ===================================================================
-        //  PHASE 2 — BUILD
+        //  PHASE 3 — BUILD
         // ===================================================================
         stage('Build') {
             parallel {
@@ -370,89 +470,6 @@ pipeline {
             }
         }
 
-        // ===================================================================
-        //  PHASE 3 — CODE QUALITY & SECURITY SCAN
-        // ===================================================================
-        stage('SonarQube Analysis') {
-            when {
-                expression { env.CHANGED_BACKEND_SERVICES }
-            }
-            steps {
-                script {
-                    def modules = env.CHANGED_BACKEND_SERVICES.split(',').toList()
-                    def projects = modules.collect { "-pl ${it}" }.join(' ')
-
-                    sh """
-                        mvn compile \
-                            ${projects} \
-                            -am \
-                            -DskipTests
-                    """
-
-                    withSonarQubeEnv('sornaque') {
-                        sh """
-                            mvn sonar:sonar \
-                                ${projects} \
-                                -am \
-                                -DskipTests \
-                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('Snyk Security Scan') {
-            when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
-            }
-            steps {
-                script {
-                    def allChanged = []
-
-                    if (env.CHANGED_BACKEND_SERVICES) {
-                        allChanged.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
-                    }
-                    if (env.CHANGED_FRONTEND_SERVICES) {
-                        allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
-                    }
-
-                    for (svc in allChanged) {
-                        echo "🔒 Snyk scanning: ${svc}"
-                        dir(svc) {
-                            // Ép JAVA_HOME và PATH cho Snyk CLI
-                            withEnv([
-                                "JAVA_HOME=${env.JAVA_HOME}",
-                                "PATH=${env.JAVA_HOME}/bin:${env.PATH}"
-                            ]) {
-                                sh '''
-                                    set -eux
-                                    echo "JAVA_HOME=$JAVA_HOME"
-                                    which java || true
-                                    java -version
-                                    which mvn  || true
-                                    mvn -version
-                                    # Đảm bảo có mvnw và có quyền execute cho Snyk Maven plugin
-                                    if [ -f "../mvnw" ] && [ ! -f "./mvnw" ]; then
-                                      cp ../mvnw ./mvnw
-                                    fi
-                                    if [ -f "./mvnw" ]; then
-                                      chmod +x ./mvnw || true
-                                    fi
-                                '''
-                                snykSecurity(
-                                    snykInstallation: 'snyk',
-                                    snykTokenId: 'snyk-token',
-                                    failOnIssues: false,
-                                    monitorProjectOnBuild: true,
-                                    additionalArguments: '--all-projects -d'
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     post {
