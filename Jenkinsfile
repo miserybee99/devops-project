@@ -71,13 +71,14 @@ pipeline {
                             tar -xJf /tmp/node.tar.xz -C .tools/node --strip-components=1
                         else
                             echo "xz not found, trying Docker-based extraction..."
-                            docker run --rm -i \
+                            docker run --rm \
+                                -v /tmp:/tmp \
                                 -v "${PWD}/.tools:/work" \
                                 alpine:3.20 sh -lc \
-                                "apk add --no-cache xz tar >/dev/null && mkdir -p /work/node && tar -xJf - -C /work/node --strip-components=1" < /tmp/node.tar.xz
+                                "apk add --no-cache xz tar >/dev/null && mkdir -p /work/node && tar -xJf /tmp/node.tar.xz -C /work/node --strip-components=1"
                         fi
 
-                        test -x .tools/node/bin/node || { echo "Node install failed"; ls -la .tools; exit 1; }
+                        test -x .tools/node/bin/node || { echo "Node install failed"; ls -la .tools; ls -la .tools/node || true; exit 1; }
                         rm -f /tmp/node.tar.xz
                     fi
 
