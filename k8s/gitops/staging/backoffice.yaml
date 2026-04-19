@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata: { name: backoffice, namespace: yas-staging, labels: { app: backoffice, env: staging } }
+    spec:
+      replicas: 1
+      selector: { matchLabels: { app: backoffice } }
+      template:
+        metadata: { labels: { app: backoffice, env: staging } }
+        spec:
+          containers:
+            - name: backoffice
+              image: khanhnv2281/yas:backoffice-latest
+              ports: [{ containerPort: 3000 }]
+  - apiVersion: v1
+    kind: Service
+    metadata: { name: backoffice, namespace: yas-staging, labels: { app: backoffice, env: staging } }
+    spec:
+      selector: { app: backoffice }
+      ports: [{ name: http, port: 80, targetPort: 3000 }]

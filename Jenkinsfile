@@ -174,7 +174,7 @@ pipeline {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
                             def projects = services.collect { "-pl ${it}" }.join(' ')
                             sh """
-                                mvn test \
+                                mvn -B -ntp test \
                                     ${projects} \
                                     -am \
                                     -Djacoco.skip=false \
@@ -201,7 +201,8 @@ pipeline {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
                             def projects = services.collect { "-pl ${it}" }.join(' ')
                             sh """
-                                mvn verify \
+                                export TESTCONTAINERS_REUSE_ENABLE=true
+                                mvn -B -ntp verify \
                                     ${projects} \
                                     -am \
                                     -DskipUnitTests=true \
@@ -227,7 +228,7 @@ pipeline {
                             if (servicesToCheck) {
                                 def projects = servicesToCheck.collect { "-pl ${it}" }.join(' ')
                                 sh """
-                                    mvn verify \
+                                    mvn -B -ntp verify \
                                         ${projects} \
                                         -am \
                                         -DskipTests \

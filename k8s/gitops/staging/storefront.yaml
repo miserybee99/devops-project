@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata: { name: storefront, namespace: yas-staging, labels: { app: storefront, env: staging } }
+    spec:
+      replicas: 1
+      selector: { matchLabels: { app: storefront } }
+      template:
+        metadata: { labels: { app: storefront, env: staging } }
+        spec:
+          containers:
+            - name: storefront
+              image: khanhnv2281/yas:storefront-latest
+              ports: [{ containerPort: 3000 }]
+  - apiVersion: v1
+    kind: Service
+    metadata: { name: storefront, namespace: yas-staging, labels: { app: storefront, env: staging } }
+    spec:
+      selector: { app: storefront }
+      ports: [{ name: http, port: 80, targetPort: 3000 }]

@@ -71,6 +71,8 @@
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
         <!-- Coverage check: skip by default, enable with -Djacoco.check.skip=false -->
         <jacoco.check.skip>true</jacoco.check.skip>
+        <!-- Jenkins IT stage: -DskipUnitTests=true skips Surefire only (Failsafe still runs). -->
+        <skipUnitTests>false</skipUnitTests>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -338,7 +340,21 @@
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <skipTests>${skipUnitTests}</skipTests>
+                        <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                        <trimStackTrace>true</trimStackTrace>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
+                    <configuration>
+                        <!-- Less console noise in CI; full output under target/failsafe-reports/*.txt -->
+                        <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                        <trimStackTrace>true</trimStackTrace>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.jacoco</groupId>
@@ -438,6 +454,8 @@
                             <includes>
                                 <include>**/**IT.java</include>
                             </includes>
+                            <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                            <trimStackTrace>true</trimStackTrace>
                         </configuration>
                     </execution>
                 </executions>

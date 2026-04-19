@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata: { name: storefront-bff, namespace: yas-staging, labels: { app: storefront-bff, env: staging } }
+    spec:
+      replicas: 1
+      selector: { matchLabels: { app: storefront-bff } }
+      template:
+        metadata: { labels: { app: storefront-bff, env: staging } }
+        spec:
+          containers:
+            - name: storefront-bff
+              image: khanhnv2281/yas:storefront-bff-latest
+              ports: [{ containerPort: 8080 }]
+  - apiVersion: v1
+    kind: Service
+    metadata: { name: storefront-bff, namespace: yas-staging, labels: { app: storefront-bff, env: staging } }
+    spec:
+      selector: { app: storefront-bff }
+      ports: [{ name: http, port: 80, targetPort: 8080 }]

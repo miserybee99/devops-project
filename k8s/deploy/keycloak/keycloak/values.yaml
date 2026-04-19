@@ -2,7 +2,10 @@ hostname: identity.yas.local.com
 backofficeRedirectUrl: http://backoffice.yas.local.com
 storefrontRedirectUrl: http://storefront.yas.local.com
 postgresql:
-  username: yasadminuser
+  host: postgres.yas-dev.svc.cluster.local
+  port: 5432
+  database: keycloak
+  username: admin
   password: admin
 
 bootstrapAdmin:

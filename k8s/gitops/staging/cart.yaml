@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata: { name: cart, namespace: yas-staging, labels: { app: cart, env: staging } }
+    spec:
+      replicas: 1
+      selector: { matchLabels: { app: cart } }
+      template:
+        metadata: { labels: { app: cart, env: staging } }
+        spec:
+          containers:
+            - name: cart
+              image: khanhnv2281/yas:cart-latest
+              ports: [{ containerPort: 8084 }]
+  - apiVersion: v1
+    kind: Service
+    metadata: { name: cart, namespace: yas-staging, labels: { app: cart, env: staging } }
+    spec:
+      selector: { app: cart }
+      ports: [{ name: http, port: 80, targetPort: 8084 }]

@@ -14,9 +14,9 @@ spec:
     passwordSecret:
       name: postgresql-credentials
       key: password
-    host: postgresql.postgres
-    database: keycloak
-    port: 5432
+    host: {{ .Values.postgresql.host | quote }}
+    database: {{ .Values.postgresql.database | quote }}
+    port: {{ .Values.postgresql.port }}
   http:
     httpEnabled: true
     httpPort: 80
