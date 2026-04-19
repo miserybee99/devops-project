@@ -3,6 +3,7 @@
 # Chỉ chạy init script khi volume PGDATA trống (pod/postgres mới).
 # Nếu đổi namespace: thay toàn bộ "yas-dev" bên dưới hoặc sed trước khi kubectl apply.
 # test gitops 
+# test gitops 2
 
 apiVersion: v1
 kind: Secret
