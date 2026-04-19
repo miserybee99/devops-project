@@ -174,7 +174,7 @@ pipeline {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
                             def projects = services.collect { "-pl ${it}" }.join(' ')
                             sh """
-                                mvn -B -ntp test \
+                                mvn -B -ntp -T 1C test \
                                     ${projects} \
                                     -am \
                                     -Djacoco.skip=false \

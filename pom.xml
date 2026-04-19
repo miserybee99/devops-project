@@ -73,6 +73,8 @@
         <jacoco.check.skip>true</jacoco.check.skip>
         <!-- Jenkins IT stage: -DskipUnitTests=true skips Surefire only (Failsafe still runs). -->
         <skipUnitTests>false</skipUnitTests>
+        <!-- Surefire JVM forks per module; raise with -Dsurefire.forkCount=1C on large agents, lower to 1 if OOM. -->
+        <surefire.forkCount>2</surefire.forkCount>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -343,6 +345,8 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <configuration>
                         <skipTests>${skipUnitTests}</skipTests>
+                        <forkCount>${surefire.forkCount}</forkCount>
+                        <reuseForks>true</reuseForks>
                         <redirectTestOutputToFile>true</redirectTestOutputToFile>
                         <trimStackTrace>true</trimStackTrace>
                     </configuration>
@@ -362,9 +366,14 @@
                     <version>${jacoco-maven-plugin.version}</version>
                     <executions>
                         <execution>
+                            <id>prepare-agent</id>
                             <goals>
                                 <goal>prepare-agent</goal>
                             </goals>
+                            <configuration>
+                                <!-- Required when Surefire runs multiple JVM forks in parallel. -->
+                                <append>true</append>
+                            </configuration>
                         </execution>
                         <execution>
                             <id>report</id>
