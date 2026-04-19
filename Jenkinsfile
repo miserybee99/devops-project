@@ -64,23 +64,20 @@ pipeline {
                         esac
                         rm -rf /tmp/node.tar.xz
                         curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${NARCH}.tar.xz" -o /tmp/node.tar.xz
+                        rm -rf .tools/node
+                        mkdir -p .tools/node
 
                         if command -v xz >/dev/null 2>&1; then
-                            tar -xJf /tmp/node.tar.xz -C .tools
-                        elif command -v python3 >/dev/null 2>&1; then
-                            python3 - <<'PY'
-import tarfile
-tarfile.open("/tmp/node.tar.xz", "r:xz").extractall(".tools")
-PY
+                            tar -xJf /tmp/node.tar.xz -C .tools/node --strip-components=1
                         else
-                            echo "xz/python3 not found, trying Docker-based extraction..."
+                            echo "xz not found, trying Docker-based extraction..."
                             docker run --rm -i \
                                 -v "${PWD}/.tools:/work" \
                                 alpine:3.20 sh -lc \
-                                "apk add --no-cache xz tar >/dev/null && tar -xJf - -C /work" < /tmp/node.tar.xz
+                                "apk add --no-cache xz tar >/dev/null && mkdir -p /work/node && tar -xJf - -C /work/node --strip-components=1" < /tmp/node.tar.xz
                         fi
 
-                        mv ".tools/node-v22.15.0-linux-${NARCH}" .tools/node
+                        test -x .tools/node/bin/node || { echo "Node install failed"; ls -la .tools; exit 1; }
                         rm -f /tmp/node.tar.xz
                     fi
 
