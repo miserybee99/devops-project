@@ -62,24 +62,13 @@ pipeline {
                             aarch64) NARCH=arm64 ;;
                             *) echo "Unsupported arch for Node.js: $ARCH"; exit 1 ;;
                         esac
-                        rm -rf /tmp/node.tar.xz
-                        curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${NARCH}.tar.xz" -o /tmp/node.tar.xz
+                        rm -rf /tmp/node.tar.gz .tools/node
+                        curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${NARCH}.tar.gz" -o /tmp/node.tar.gz
                         rm -rf .tools/node
                         mkdir -p .tools/node
-
-                        if command -v xz >/dev/null 2>&1; then
-                            tar -xJf /tmp/node.tar.xz -C .tools/node --strip-components=1
-                        else
-                            echo "xz not found, trying Docker-based extraction..."
-                            docker run --rm \
-                                -v /tmp:/tmp \
-                                -v "${PWD}/.tools:/work" \
-                                alpine:3.20 sh -lc \
-                                "apk add --no-cache xz tar >/dev/null && mkdir -p /work/node && tar -xJf /tmp/node.tar.xz -C /work/node --strip-components=1"
-                        fi
-
+                        tar -xzf /tmp/node.tar.gz -C .tools/node --strip-components=1
                         test -x .tools/node/bin/node || { echo "Node install failed"; ls -la .tools; ls -la .tools/node || true; exit 1; }
-                        rm -f /tmp/node.tar.xz
+                        rm -f /tmp/node.tar.gz
                     fi
 
                     java -version
