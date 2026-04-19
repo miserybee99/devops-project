@@ -47,7 +47,10 @@ pipeline {
                             *) echo "Unsupported arch for Node.js: $ARCH"; exit 1 ;;
                         esac
                         curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${NARCH}.tar.xz" -o /tmp/node.tar.xz
-                        tar -xJf /tmp/node.tar.xz -C .tools
+                        python3 - <<'PY'
+import tarfile
+tarfile.open("/tmp/node.tar.xz", "r:xz").extractall(".tools")
+PY
                         mv ".tools/node-v22.15.0-linux-${NARCH}" .tools/node
                         rm -f /tmp/node.tar.xz
                     fi
