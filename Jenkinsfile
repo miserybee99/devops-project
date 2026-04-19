@@ -62,6 +62,7 @@ pipeline {
                             aarch64) NARCH=arm64 ;;
                             *) echo "Unsupported arch for Node.js: $ARCH"; exit 1 ;;
                         esac
+                        rm -rf /tmp/node.tar.xz
                         curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${NARCH}.tar.xz" -o /tmp/node.tar.xz
 
                         if command -v xz >/dev/null 2>&1; then
@@ -73,11 +74,10 @@ tarfile.open("/tmp/node.tar.xz", "r:xz").extractall(".tools")
 PY
                         else
                             echo "xz/python3 not found, trying Docker-based extraction..."
-                            docker run --rm \
-                                -v /tmp/node.tar.xz:/tmp/node.tar.xz:ro \
+                            docker run --rm -i \
                                 -v "${PWD}/.tools:/work" \
                                 alpine:3.20 sh -lc \
-                                "apk add --no-cache xz tar >/dev/null && tar -xJf /tmp/node.tar.xz -C /work"
+                                "apk add --no-cache xz tar >/dev/null && tar -xJf - -C /work" < /tmp/node.tar.xz
                         fi
 
                         mv ".tools/node-v22.15.0-linux-${NARCH}" .tools/node
