@@ -366,11 +366,13 @@ pipeline {
             }
             post {
                 always {
-                    def hasFrontendJunit = fileExists('storefront/junit.xml') || fileExists('backoffice/junit.xml')
-                    if (hasFrontendJunit) {
-                        junit testResults: '**/junit.xml', allowEmptyResults: true
-                    } else {
-                        echo "No frontend junit.xml found; skipping JUnit publishing."
+                    script {
+                        def hasFrontendJunit = fileExists('storefront/junit.xml') || fileExists('backoffice/junit.xml')
+                        if (hasFrontendJunit) {
+                            junit testResults: '**/junit.xml', allowEmptyResults: true
+                        } else {
+                            echo "No frontend junit.xml found; skipping JUnit publishing."
+                        }
                     }
                     publishHTML(target: [
                         reportDir:   'storefront/coverage/lcov-report',
