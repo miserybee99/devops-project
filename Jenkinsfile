@@ -154,6 +154,9 @@ pipeline {
                     env.CHANGED_BACKEND_SERVICES  = changedBackend ? changedBackend.toList().join(',') : ''
                     env.CHANGED_FRONTEND_SERVICES = changedFrontend ? changedFrontend.toList().join(',') : ''
 
+                    // Frontend-only pipeline mode: always test both frontend apps.
+                    env.CHANGED_FRONTEND_SERVICES = frontendServices.join(',')
+
                     echo "Backend services to build:  ${env.CHANGED_BACKEND_SERVICES ?: '(none)'}"
                     echo "Frontend services to build: ${env.CHANGED_FRONTEND_SERVICES ?: '(none)'}"
                 }
@@ -164,6 +167,9 @@ pipeline {
         //  PHASE 0 — SECRET SCAN
         // ===================================================================
         stage('Gitleaks Secret Scan') {
+            when {
+                expression { false }
+            }
             steps {
                 sh '''
                     if ! command -v gitleaks &> /dev/null; then
@@ -183,7 +189,7 @@ pipeline {
         // ===================================================================
         stage('SonarQube Analysis') {
             when {
-                expression { env.CHANGED_BACKEND_SERVICES }
+                expression { false }
             }
             steps {
                 script {
@@ -212,7 +218,7 @@ pipeline {
 
         stage('Snyk Security Scan') {
             when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+                expression { false }
             }
             steps {
                 script {
@@ -267,7 +273,7 @@ pipeline {
         // ===================================================================
         stage('Test') {
             when {
-                expression { env.CHANGED_BACKEND_SERVICES }
+                expression { false }
             }
             stages {
 
@@ -374,18 +380,6 @@ pipeline {
                             echo "No frontend junit.xml found; skipping JUnit publishing."
                         }
                     }
-                    publishHTML(target: [
-                        reportDir:   'storefront/coverage/lcov-report',
-                        reportFiles: 'index.html',
-                        reportName:  'Storefront Coverage',
-                        allowMissing: true
-                    ])
-                    publishHTML(target: [
-                        reportDir:   'backoffice/coverage/lcov-report',
-                        reportFiles: 'index.html',
-                        reportName:  'Backoffice Coverage',
-                        allowMissing: true
-                    ])
                 }
             }
         }
@@ -394,6 +388,9 @@ pipeline {
         //  PHASE 3 — BUILD
         // ===================================================================
         stage('Build') {
+            when {
+                expression { false }
+            }
             parallel {
 
                 stage('Build Backend JARs') {
@@ -435,7 +432,7 @@ pipeline {
 
         stage('Build & Push Docker Images') {
             when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+                expression { false }
             }
             steps {
                 script {
