@@ -354,10 +354,12 @@ pipeline {
                 script {
                     def services = env.CHANGED_FRONTEND_SERVICES.split(',')
                     for (svc in services) {
+                        echo "Frontend Test: ${svc}"
                         dir(svc) {
                             sh 'npm ci'
-                            sh 'npm run lint  || true'
-                            sh 'npm run test -- --coverage --reporters=default --reporters=jest-junit || true'
+                            sh 'npm run lint || true'
+                            // Next apps may have no "test" script; npm 7+ skips cleanly with --if-present
+                            sh 'npm run test --if-present -- --coverage --reporters=default --reporters=jest-junit || true'
                         }
                     }
                 }
