@@ -154,9 +154,6 @@ pipeline {
                     env.CHANGED_BACKEND_SERVICES  = changedBackend ? changedBackend.toList().join(',') : ''
                     env.CHANGED_FRONTEND_SERVICES = changedFrontend ? changedFrontend.toList().join(',') : ''
 
-                    // Frontend-only pipeline mode: always test both frontend apps.
-                    env.CHANGED_FRONTEND_SERVICES = frontendServices.join(',')
-
                     echo "Backend services to build:  ${env.CHANGED_BACKEND_SERVICES ?: '(none)'}"
                     echo "Frontend services to build: ${env.CHANGED_FRONTEND_SERVICES ?: '(none)'}"
                 }
@@ -167,9 +164,6 @@ pipeline {
         //  PHASE 0 — SECRET SCAN
         // ===================================================================
         stage('Gitleaks Secret Scan') {
-            when {
-                expression { false }
-            }
             steps {
                 sh '''
                     if ! command -v gitleaks &> /dev/null; then
@@ -189,7 +183,7 @@ pipeline {
         // ===================================================================
         stage('SonarQube Analysis') {
             when {
-                expression { false }
+                expression { env.CHANGED_BACKEND_SERVICES }
             }
             steps {
                 script {
@@ -218,7 +212,7 @@ pipeline {
 
         stage('Snyk Security Scan') {
             when {
-                expression { false }
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
             }
             steps {
                 script {
@@ -273,7 +267,7 @@ pipeline {
         // ===================================================================
         stage('Test') {
             when {
-                expression { false }
+                expression { env.CHANGED_BACKEND_SERVICES }
             }
             stages {
 
@@ -388,9 +382,6 @@ pipeline {
         //  PHASE 3 — BUILD
         // ===================================================================
         stage('Build') {
-            when {
-                expression { false }
-            }
             parallel {
 
                 stage('Build Backend JARs') {
@@ -432,7 +423,7 @@ pipeline {
 
         stage('Build & Push Docker Images') {
             when {
-                expression { false }
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
             }
             steps {
                 script {
