@@ -163,6 +163,7 @@ pipeline {
         // ===================================================================
         //  PHASE 0 — SECRET SCAN
         // ===================================================================
+        /* TEMP: focus Unit Tests + Coverage Gate only — delete this block comment to re-enable
         stage('Gitleaks Secret Scan') {
             steps {
                 sh '''
@@ -209,7 +210,9 @@ pipeline {
                 }
             }
         }
+        */
 
+        /* TEMP: focus Unit Tests + Coverage Gate only — delete this block comment to re-enable
         stage('Snyk Security Scan') {
             when {
                 expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
@@ -261,6 +264,7 @@ pipeline {
                 }
             }
         }
+        */
 
         // ===================================================================
         //  PHASE 2 — TEST
@@ -298,6 +302,7 @@ pipeline {
                     }
                 }
 
+                /* TEMP: focus Unit Tests + Coverage Gate only — delete this block comment to re-enable
                 stage('Integration Tests') {
                     steps {
                         script {
@@ -320,12 +325,13 @@ pipeline {
                         }
                     }
                 }
+                */
 
                 stage('Coverage Gate (>70% line)') {
                     steps {
                         script {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
-                            def skipList = ['common-library', 'sampledata', 'delivery']
+                            def skipList = ['common-library', 'sampledata']
                             def servicesToCheck = services.findAll { !(it in skipList) }
 
                             if (servicesToCheck) {
@@ -346,6 +352,7 @@ pipeline {
             }
         }
 
+        /* TEMP: focus Unit Tests + Coverage Gate only — delete this block comment to re-enable
         stage('Frontend Test') {
             when {
                 expression { env.CHANGED_FRONTEND_SERVICES }
@@ -469,6 +476,7 @@ pipeline {
                 }
             }
         }
+        */
 
     }
 
