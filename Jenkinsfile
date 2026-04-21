@@ -163,8 +163,8 @@ pipeline {
         // ===================================================================
         //  PHASE 0 — SECRET SCAN
         // ===================================================================
-        /* TEMP: focus Unit Tests + Coverage Gate only — delete this block comment to re-enable
         stage('Gitleaks Secret Scan') {
+            when { expression { false } } // TEMP: remove this when-block to re-enable (block /* */ breaks on **/ in globs)
             steps {
                 sh '''
                     if ! command -v gitleaks &> /dev/null; then
@@ -184,7 +184,7 @@ pipeline {
         // ===================================================================
         stage('SonarQube Analysis') {
             when {
-                expression { env.CHANGED_BACKEND_SERVICES }
+                expression { false } // TEMP: restore env.CHANGED_BACKEND_SERVICES check when re-enabling
             }
             steps {
                 script {
@@ -210,12 +210,10 @@ pipeline {
                 }
             }
         }
-        */
 
-        /* TEMP: focus Unit Tests + Coverage Gate only — delete this block comment to re-enable
         stage('Snyk Security Scan') {
             when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+                expression { false } // TEMP: restore CHANGED_BACKEND || CHANGED_FRONTEND when re-enabling
             }
             steps {
                 script {
@@ -264,7 +262,6 @@ pipeline {
                 }
             }
         }
-        */
 
         // ===================================================================
         //  PHASE 2 — TEST
@@ -302,8 +299,8 @@ pipeline {
                     }
                 }
 
-                /* TEMP: focus Unit Tests + Coverage Gate only — delete this block comment to re-enable
                 stage('Integration Tests') {
+                    when { expression { false } } // TEMP: remove when-block to re-enable
                     steps {
                         script {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
@@ -325,7 +322,6 @@ pipeline {
                         }
                     }
                 }
-                */
 
                 stage('Coverage Gate (>70% line)') {
                     steps {
@@ -352,10 +348,9 @@ pipeline {
             }
         }
 
-        /* TEMP: focus Unit Tests + Coverage Gate only — delete this block comment to re-enable
         stage('Frontend Test') {
             when {
-                expression { env.CHANGED_FRONTEND_SERVICES }
+                expression { false } // TEMP: restore env.CHANGED_FRONTEND_SERVICES when re-enabling
             }
             steps {
                 script {
@@ -389,6 +384,7 @@ pipeline {
         //  PHASE 3 — BUILD
         // ===================================================================
         stage('Build') {
+            when { expression { false } } // TEMP: remove when-block to re-enable Build
             parallel {
 
                 stage('Build Backend JARs') {
@@ -430,7 +426,7 @@ pipeline {
 
         stage('Build & Push Docker Images') {
             when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+                expression { false } // TEMP: restore CHANGED_BACKEND || CHANGED_FRONTEND when re-enabling
             }
             steps {
                 script {
@@ -476,7 +472,6 @@ pipeline {
                 }
             }
         }
-        */
 
     }
 
