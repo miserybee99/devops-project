@@ -300,7 +300,6 @@ pipeline {
                 }
 
                 stage('Integration Tests') {
-                    when { expression { false } } // TEMP: remove when-block to re-enable
                     steps {
                         script {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
