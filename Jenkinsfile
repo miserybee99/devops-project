@@ -164,7 +164,6 @@ pipeline {
         //  PHASE 0 — SECRET SCAN
         // ===================================================================
         stage('Gitleaks Secret Scan') {
-            when { expression { false } } // TEMP: remove this when-block to re-enable (block /* */ breaks on **/ in globs)
             steps {
                 sh '''
                     if ! command -v gitleaks &> /dev/null; then
@@ -184,7 +183,7 @@ pipeline {
         // ===================================================================
         stage('SonarQube Analysis') {
             when {
-                expression { false } // TEMP: restore env.CHANGED_BACKEND_SERVICES check when re-enabling
+                expression { env.CHANGED_BACKEND_SERVICES }
             }
             steps {
                 script {
@@ -213,7 +212,7 @@ pipeline {
 
         stage('Snyk Security Scan') {
             when {
-                expression { false } // TEMP: restore CHANGED_BACKEND || CHANGED_FRONTEND when re-enabling
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
             }
             steps {
                 script {
@@ -349,7 +348,7 @@ pipeline {
 
         stage('Frontend Test') {
             when {
-                expression { false } // TEMP: restore env.CHANGED_FRONTEND_SERVICES when re-enabling
+                expression { env.CHANGED_FRONTEND_SERVICES }
             }
             steps {
                 script {
@@ -383,7 +382,9 @@ pipeline {
         //  PHASE 3 — BUILD
         // ===================================================================
         stage('Build') {
-            when { expression { false } } // TEMP: remove when-block to re-enable Build
+            when {
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+            }
             parallel {
 
                 stage('Build Backend JARs') {
@@ -425,7 +426,7 @@ pipeline {
 
         stage('Build & Push Docker Images') {
             when {
-                expression { false } // TEMP: restore CHANGED_BACKEND || CHANGED_FRONTEND when re-enabling
+                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
             }
             steps {
                 script {
