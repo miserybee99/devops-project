@@ -1,0 +1,53 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'SERVICE_NAME', defaultValue: '', description: 'Name of removed service. Empty to remove all.')
+    }
+    environment {
+        NAMESPACE  = 'yas'
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'dev',
+                    url: 'https://github.com/Phuc-215/yas.git',
+                    credentialsId: 'github-credentials'
+            }
+        }
+        stage('Cleanup') {
+            steps {
+                script {
+                    if (params.SERVICE_NAME?.trim()) {
+                        echo "Xóa service: ${params.SERVICE_NAME}"
+                        sh """
+                            helm uninstall ${params.SERVICE_NAME} \
+                                --namespace ${NAMESPACE} 2>/dev/null || true
+                        """
+                    } else {
+                        echo "Xóa tất cả services trong namespace ${NAMESPACE}"
+                        // Lấy danh sách từ helm list thay vì ls charts/
+                        // để chỉ xóa những gì đã được install
+                        def releases = sh(
+                            script: "helm list -n ${NAMESPACE} -q",
+                            returnStdout: true
+                        ).trim()
+
+                        if (releases) {
+                            releases.split('\n').each { release ->
+                                sh "helm uninstall ${release.trim()} --namespace ${NAMESPACE} 2>/dev/null || true"
+                            }
+                        } else {
+                            echo "Không có release nào trong namespace ${NAMESPACE}"
+                        }
+                    }
+                }
+            }
+        }
+        stage('Verify') {
+            steps {
+                sh "helm list -n ${NAMESPACE}"
+                sh "kubectl get pods -n ${NAMESPACE}"
+            }
+        }
+    }
+}

@@ -1,0 +1,223 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_USR = "bync"
+        DOCKERHUB_CREDS = "dockerhub-credentials"
+        GITHUB_CREDS   = "github-credentials"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Prepare') {
+            steps {
+                script {
+                    def commitId = env.GIT_COMMIT?.take(8)
+                    if (!commitId) {
+                        echo "GIT_COMMIT null, fallback to git rev-parse"
+                        commitId = sh(
+                            script: "git rev-parse --short HEAD",
+                            returnStdout: true
+                        ).trim()
+                    }
+                    env.COMMIT_ID = commitId
+
+		            def gitTag = sh(
+                        script: "git tag --points-at HEAD | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+' || true",
+                        returnStdout: true
+                    ).trim()
+ 
+                    if (gitTag) {
+                        env.DEPLOY_ENV = "staging"
+                        env.IMAGE_TAG  = gitTag          // vd: v1.2.3
+                    } else {
+                        env.DEPLOY_ENV = "dev"
+                        env.IMAGE_TAG  = commitId        // vd: bf400fc
+                    }
+ 
+                    echo "Deploy environment : ${env.DEPLOY_ENV}"
+                    echo "Image tag          : ${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Detect Services') {
+            steps {
+                script {
+                    if (env.DEPLOY_ENV == "staging") {
+                        // Staging: build all services
+                        def allServices = sh(
+                            script: "find . -name Dockerfile -not -path '*/node_modules/*' | sed 's|/Dockerfile||' | sed 's|^./||'",
+                            returnStdout: true
+                        ).trim().split("\n")
+ 
+                        env.CHANGED_SERVICES = allServices.join(",")
+                        echo "Staging release → build all services: ${env.CHANGED_SERVICES}"
+                    } else {
+                        // Dev: only build changed service
+                        def changedFiles = sh(
+                            script: "git diff --name-only HEAD~1 HEAD",
+                            returnStdout: true
+                        ).trim().split("\n")
+ 
+                        def services = []
+                        for (file in changedFiles) {
+                            def parts = file.tokenize("/")
+                            if (parts.size() > 1) {
+                                def svc = parts[0]
+                                if (!services.contains(svc) && fileExists("${svc}/Dockerfile")) {
+                                    services.add(svc)
+                                }
+                            }
+                        }
+ 
+                        if (services.isEmpty()) {
+                            echo "No service changed → skip build"
+                            currentBuild.result = 'SUCCESS'
+                            return
+                        }
+ 
+                        env.CHANGED_SERVICES = services.join(",")
+                        echo "Changed services: ${env.CHANGED_SERVICES}"
+                    }
+                }
+            }
+        }
+        
+        stage('Build JAR') {
+            when {
+                expression { return env.CHANGED_SERVICES != null }
+            }
+            steps {
+                script {
+                    def services = env.CHANGED_SERVICES.split(',')
+                    for (service in services) {
+                        echo "Compile ${service}..."
+                        sh """
+                        chmod +x mvnw
+                        ./mvnw clean package -pl ${service} -am -DskipTests
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Docker Login') {
+            when {
+                expression { return env.CHANGED_SERVICES != null }
+            }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: DOCKERHUB_CREDS,
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
+                    sh '''
+                    echo "$PASS" | docker login -u "$USER" --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Build & Push Images') {
+            when {
+                expression { return env.CHANGED_SERVICES != null }
+            }
+            steps {
+                script {
+                    def services = env.CHANGED_SERVICES.split(",")
+
+                    for (svc in services) {
+                        def image = "${DOCKERHUB_USR}/${svc}"
+
+                        echo "Building ${svc} → ${image}:${env.IMAGE_TAG}."
+
+                        sh """
+                        docker build \
+                            --cache-from=${image}:latest \
+                            -t ${image}:${IMAGE_TAG} \
+                            -f ${svc}/Dockerfile ./${svc}
+                        """
+                        retry(3) {
+                            sh "docker push ${image}:${IMAGE_TAG}"
+                        }
+                        if (env.DEPLOY_ENV == "dev") {
+                            sh "docker tag ${image}:${env.IMAGE_TAG} ${image}:latest"
+                            retry(3) {
+                                sh "docker push ${image}:latest"
+			                }
+			            }
+		            }
+		        }
+	        }
+	    }
+
+        stage('Update Overlay & Push Git') {
+            when {
+                expression { return env.CHANGED_SERVICES != null }
+            }
+            steps {
+                script {
+                    def services = env.CHANGED_SERVICES.split(",")
+                    withCredentials([usernamePassword(
+                        credentialsId: 'github-credentials',
+                        usernameVariable: 'GIT_USER',
+                        passwordVariable: 'GIT_TOKEN'
+                    )]) {
+                        sh """
+                            git fetch origin main
+                            git checkout -B main origin/main
+                            git config user.email "jenkins@yas.local"
+                            git config user.name  "Jenkins"
+                        """
+                        for (svc in services) {
+                            svc = svc.trim()
+                            sh """
+                                yq -i '.backend.image.tag = "${env.IMAGE_TAG}"' \
+                                    overlays/${env.DEPLOY_ENV}/${svc}.yaml
+                            """
+                        }
+                        sh """
+                            git add overlays/${env.DEPLOY_ENV}/
+                            git diff --cached --quiet || git commit -m "ci: [${env.DEPLOY_ENV}] update image tag to ${env.IMAGE_TAG} [skip ci]"
+                            git push https://${GIT_USER}:${GIT_TOKEN}@github.com/Phuc-215/yas-deploy.git main
+                        """
+                    }
+                }
+            }
+        }
+    }
+	
+    post {
+        always {
+            script {
+                if (env.CHANGED_SERVICES) {
+                    def services = env.CHANGED_SERVICES.split(",")
+
+                    for (svc in services) {
+                        def image = "${DOCKERHUB_USR}/${svc}"
+                        sh "docker rmi ${image}:${env.IMAGE_TAG} || true"
+                        sh "docker rmi ${image}:latest || true"
+                    }
+                }
+            }
+        }
+	    success {
+            echo """
+            CI successfully!
+            Enviroment : ${env.DEPLOY_ENV}
+            Image tag  : ${env.IMAGE_TAG}
+            Services   : ${env.CHANGED_SERVICES}
+            """
+        }
+        failure {
+            echo "CI failure. Watch logs for details."
+        }
+    }
+}
