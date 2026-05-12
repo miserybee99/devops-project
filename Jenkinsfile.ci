@@ -1,0 +1,151 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_USR = "bync"
+        DOCKERHUB_CREDS = "dockerhub-credentials"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Prepare') {
+            steps {
+                script {
+                    def commitId = env.GIT_COMMIT?.take(8)
+    
+                    if (!commitId) {
+                        echo "GIT_COMMIT null, fallback to git rev-parse"
+                        commitId = sh(
+                            script: "git rev-parse --short HEAD",
+                            returnStdout: true
+                        ).trim()
+                    }
+    
+                    env.COMMIT_ID = commitId
+                    echo "COMMIT_ID: ${env.COMMIT_ID}"
+                }
+            }
+        }
+
+        stage('Detect Changed Services') {
+            steps {
+                script {
+                    // Lấy danh sách file thay đổi
+                    def changedFiles = sh(
+                        script: "git diff --name-only HEAD~1 HEAD",
+                        returnStdout: true
+                    ).trim().split("\n")
+
+                    def services = []
+
+                    for (file in changedFiles) {
+                        def parts = file.tokenize("/")
+                        if (parts.size() > 1) {
+                            def svc = parts[0]
+                            if (!services.contains(svc) && fileExists("${svc}/Dockerfile")) {
+                                services.add(svc)
+                            }
+                        }
+                    }
+
+                    if (services.isEmpty()) {
+                        echo "No service changed → skip build"
+                        currentBuild.result = 'SUCCESS'
+                        return
+                    }
+
+                    env.CHANGED_SERVICES = services.join(",")
+                    echo "Changed services: ${env.CHANGED_SERVICES}"
+                }
+            }
+        }
+        
+        stage('Build JAR') {
+            steps {
+                script {
+                    def services = env.CHANGED_SERVICES.split(',')
+                    for (service in services) {
+                        echo "Compile ${service}..."
+                        // Chạy Maven Wrapper để build file .jar
+                        // -DskipTests giúp bỏ qua việc chạy unit test để tăng tốc độ build
+                        sh """
+                        chmod +x mvnw
+                        ./mvnw clean install -pl ${service} -am -DskipTests
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Docker Login') {
+            when {
+                expression { return env.CHANGED_SERVICES != null }
+            }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: DOCKERHUB_CREDS,
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
+                    sh '''
+                    echo "$PASS" | docker login -u "$USER" --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Build & Push Changed Services') {
+            when {
+                expression { return env.CHANGED_SERVICES != null }
+            }
+            steps {
+                script {
+                    def services = env.CHANGED_SERVICES.split(",")
+
+                    for (svc in services) {
+                        def image = "${DOCKERHUB_USR}/${svc}"
+
+                        echo "Building ${svc}..."
+
+                        sh """
+                        docker build \
+                            --no-cache \
+                            -t ${image}:${COMMIT_ID} \
+                            -f ${svc}/Dockerfile ./${svc}
+                        docker tag ${image}:${COMMIT_ID} ${image}:latest
+                        """
+                        retry(3) {
+                            sh "docker push ${image}:${COMMIT_ID}"
+                        }
+                        
+                        retry(3) {
+                            sh "docker push ${image}:latest"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                if (env.CHANGED_SERVICES) {
+                    def services = env.CHANGED_SERVICES.split(",")
+
+                    for (svc in services) {
+                        def image = "${DOCKERHUB_USR}/${svc}"
+                        sh "docker rmi ${image}:${COMMIT_ID} || true"
+                        sh "docker rmi ${image}:latest || true"
+                    }
+                }
+            }
+        }
+    }
+}

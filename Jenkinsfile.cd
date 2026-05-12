@@ -1,0 +1,150 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'SERVICE_NAME', defaultValue: 'tax', description: 'Name of Service (vd: tax)')
+        string(name: 'BRANCH_NAME', defaultValue: 'dev', description: 'Branch of Service (vd: dev-tax-service)')
+    }
+
+    environment {
+        NAMESPACE        = 'yas'
+        DOCKERHUB_USER   = 'bync'
+	    CHARTS_PATH      = 'k8s/charts'
+        WORKER_NODE_IP   = '192.168.122.169'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                git branch: "${params.BRANCH_NAME}",
+                    url: 'https://github.com/Phuc-215/yas.git',
+                    credentialsId: 'github-credentials'
+            }
+        }
+
+        stage('Get commit ID') {
+            steps {
+                script {
+                    env.COMMIT_ID = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                    echo "Commit ID: ${env.COMMIT_ID}"
+                }
+            }
+        }
+
+        stage('Deploy Configuration') {
+            steps {
+                sh """
+                    helm dependency build ${CHARTS_PATH}/yas-configuration
+                    helm upgrade --install yas-configuration ${CHARTS_PATH}/yas-configuration \
+                        --namespace yas --create-namespace
+                """
+            }
+        }
+
+        stage('Deploy Applications') {
+            steps {
+                script {
+                    def services = [
+                        "cart","customer","inventory","location","media",
+                        "order","payment","product","promotion","rating",
+                        "search","tax","recommendation","webhook","sampledata"
+                    ]
+
+                    for (svc in services) {
+                        def tag = (svc == params.SERVICE) ? COMMIT_ID : "latest"
+                        echo "Deploying ${svc} with tag ${tag}"
+                        sh """
+                            helm dependency build ${CHARTS_PATH}/${svc} --skip-refresh || true
+                            helm upgrade --install ${svc} ${CHARTS_PATH}/${svc} \
+                            --namespace ${NAMESPACE} \
+                            --create-namespace \
+                            --set backend.ingress.host=api.yas.local.com \
+                            --set backend.image.repository=${DOCKERHUB_USER}/${svc} \
+                            --set backend.image.tag=${tag} \
+                            --wait --timeout 3m \
+                            || true
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Backoffice Layer') {
+            steps {
+                sh """
+                    helm dependency build ${CHARTS_PATH}/backoffice-bff
+                    helm upgrade --install backoffice-bff ${CHARTS_PATH}/backoffice-bff \
+                        --namespace ${NAMESPACE} \
+                        --set backend.ingress.host=backoffice.${params.DOMAIN}
+                    helm dependency build ${CHARTS_PATH}/backoffice-ui
+                    helm upgrade --install backoffice-ui ${CHARTS_PATH}/backoffice-ui \
+                        --namespace ${NAMESPACE}
+                """
+            }
+        }
+        
+        stage('Deploy Storefront Layer') {
+            steps {
+                sh """
+                    helm dependency build ${CHARTS_PATH}/storefront-bff
+                    helm upgrade --install storefront-bff ${CHARTS_PATH}/storefront-bff \
+                        --namespace ${NAMESPACE} \
+                        --set backend.ingress.host=storefront.${params.DOMAIN}
+                    helm dependency build ${CHARTS_PATH}/storefront-ui
+                    helm upgrade --install storefront-ui ${CHARTS_PATH}/storefront-ui \
+                        --namespace ${NAMESPACE}
+                """
+            }
+        }
+        
+        stage('Deploy Swagger UI') {
+            steps {
+                sh """
+                    helm upgrade --install swagger-ui ${CHARTS_PATH}/swagger-ui \
+                        --namespace ${NAMESPACE} \
+                        --set ingress.host=api.${params.DOMAIN}
+                """
+            }
+        }
+
+        stage('Get access info') {
+            steps {
+                script {
+                    def nodePort = sh(
+                        script: """
+                            kubectl get svc ${params.SERVICE_NAME} -n ${NAMESPACE} \
+                                -o jsonpath='{.spec.ports[0].nodePort}'
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    def domain = "${params.SERVICE_NAME}.yas.local.com"
+
+                    echo """
+                    ============================================
+                    Deploy thành công!
+                    
+                    Thêm dòng sau vào file hosts của bạn:
+                    ${WORKER_NODE_IP}  ${domain}
+                    
+                    Truy cập tại: http://${domain}:${nodePort}
+                    ============================================
+                    """
+
+                    // Hiển thị như hyperlink trên Jenkins UI
+                    currentBuild.description = "<a href='http://${domain}:${nodePort}'>http://${domain}:${nodePort}</a>"
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            echo "Deploy thất bại. Kiểm tra logs ở trên."
+        }
+    }
+}
