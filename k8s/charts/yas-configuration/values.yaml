@@ -58,7 +58,7 @@ applicationConfig:
       oauth2:
         resourceserver:
           jwt:
-            issuer-uri: http://keycloak-service.keycloak
+            issuer-uri: http://keycloak-service.keycloak/realms/Yas
 
     datasource:
       url:
@@ -71,8 +71,8 @@ applicationConfig:
 
   springdoc:
     oauthflow:
-      authorization-url: http://keycloak-service.keycloak/protocol/openid-connect/auth
-      token-url: http://keycloak-service.keycloak/protocol/openid-connect/token
+      authorization-url: http://keycloak-service.keycloak/realms/Yas/protocol/openid-connect/auth
+      token-url: http://keycloak-service.keycloak/realms/Yas/protocol/openid-connect/token
 
   yas:
     services:
@@ -213,7 +213,7 @@ backofficeBffExtraConfig:
         client:
           provider:
             keycloak:
-              issuer-uri: http://keycloak-service.keycloak
+              issuer-uri: http://keycloak-service.keycloak/realms/Yas
           registration:
             api-client:
               provider: keycloak
@@ -233,7 +233,7 @@ storefrontBffExtraConfig:
         client:
           provider:
             keycloak:
-              issuer-uri: http://keycloak-service.keycloak
+              issuer-uri: http://keycloak-service.keycloak/realms/Yas
           registration:
             api-client:
               provider: keycloak
