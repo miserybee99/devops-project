@@ -10,7 +10,6 @@ pipeline {
         NAMESPACE        = 'yas'
         DOCKERHUB_USER   = 'bync'
 	    CHARTS_PATH      = 'k8s/charts'
-        WORKER_NODE_IP   = '192.168.122.169'
     }
 
     stages {
@@ -18,7 +17,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: "${params.BRANCH_NAME}",
-                    url: 'https://github.com/Phuc-215/yas.git',
+                    url: 'https://github.com/miserybee99/devops-project.git',
                     credentialsId: 'github-credentials'
             }
         }
@@ -110,41 +109,14 @@ pipeline {
                 """
             }
         }
-
-        stage('Get access info') {
-            steps {
-                script {
-                    def nodePort = sh(
-                        script: """
-                            kubectl get svc ${params.SERVICE_NAME} -n ${NAMESPACE} \
-                                -o jsonpath='{.spec.ports[0].nodePort}'
-                        """,
-                        returnStdout: true
-                    ).trim()
-
-                    def domain = "${params.SERVICE_NAME}.yas.local.com"
-
-                    echo """
-                    ============================================
-                    Deploy thành công!
-                    
-                    Thêm dòng sau vào file hosts của bạn:
-                    ${WORKER_NODE_IP}  ${domain}
-                    
-                    Truy cập tại: http://${domain}:${nodePort}
-                    ============================================
-                    """
-
-                    // Hiển thị như hyperlink trên Jenkins UI
-                    currentBuild.description = "<a href='http://${domain}:${nodePort}'>http://${domain}:${nodePort}</a>"
-                }
-            }
-        }
     }
 
     post {
+        success {
+            echo "Deploy successfully!"
+        }
         failure {
-            echo "Deploy thất bại. Kiểm tra logs ở trên."
+            echo "Deploy failure. Watch logs for details."
         }
     }
 }
