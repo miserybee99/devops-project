@@ -183,7 +183,7 @@ pipeline {
             }
             steps {
                 script {
-                    build job: 'developer-deploy',
+                    build job: 'developer_deploy',
                         wait: false,
                         parameters: [
                             string(name: 'DEPLOY_ENV',       value: env.DEPLOY_ENV),
