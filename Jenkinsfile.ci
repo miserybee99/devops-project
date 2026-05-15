@@ -74,7 +74,7 @@ pipeline {
                         echo "Staging release → build all services: ${env.CHANGED_SERVICES}"
                     } else {
                         def changedFiles = sh(
-                            script: "git diff --name-only HEAD~1 HEAD",
+                            script: "git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD",
                             returnStdout: true
                         ).trim().split("\n")
 
@@ -88,17 +88,16 @@ pipeline {
                                     services.add(svc)
                                 }
                             }
-                        }   
+                        }
+                        
+                        if (services.isEmpty()) {
+                            echo "No service changed → skip build"
+                            currentBuild.result = 'SUCCESS'
+                            return
+                        }
+                        env.CHANGED_SERVICES = services.join(",")
+                        echo "Changed services: ${env.CHANGED_SERVICES}"
                     }
-
-                    if (services.isEmpty()) {
-                        echo "No service changed → skip build"
-                        currentBuild.result = 'SUCCESS'
-                        return
-                    }
-
-                    env.CHANGED_SERVICES = services.join(",")
-                    echo "Changed services: ${env.CHANGED_SERVICES}"
                 }
             }
         }
