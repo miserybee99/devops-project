@@ -347,8 +347,9 @@ spec:
             type: password
             userLabel: My password
             createdDate: 1678346530213
-            secretData: '{"value":"u6oZH6INLj3cGGIJNxhhVUAhJQhYpFmsr3yLLQyVNqs=","salt":"WmnWNNQ1hvyeXj0NlcVugA==","additionalParameters":{}}'
-            credentialData: '{"hashIterations":27500,"algorithm":"pbkdf2-sha256","additionalParameters":{}}'
+          #   secretData: '{"value":"u6oZH6INLj3cGGIJNxhhVUAhJQhYpFmsr3yLLQyVNqs=","salt":"WmnWNNQ1hvyeXj0NlcVugA==","additionalParameters":{}}'
+          #   credentialData: '{"hashIterations":27500,"algorithm":"pbkdf2-sha256","additionalParameters":{}}'
+            value: "admin"
         disableableCredentialTypes: [ ]
         requiredActions: [ ]
         realmRoles:
