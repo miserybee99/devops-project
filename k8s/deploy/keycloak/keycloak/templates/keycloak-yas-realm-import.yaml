@@ -527,7 +527,9 @@ spec:
         clientAuthenticatorType: client-secret
         secret: TVacLC0cQ8tiiEKiTVerTb2YvwQ1TRJF
         redirectUris:
-          - {{ .Values.backofficeRedirectUrl }}/*
+          - {{ .Values.backofficeRedirectUrls.prod }}/*
+          - {{ .Values.backofficeRedirectUrls.dev }}/*
+          - {{ .Values.backofficeRedirectUrls.staging }}/*
           - http://localhost:3000/*
           - http://localhost:8087/*
         webOrigins: [ ]
@@ -821,7 +823,9 @@ spec:
         clientAuthenticatorType: client-secret
         secret: ZrU9I0q2uXBglBnmvyJdkl1lf0ncr8tn
         redirectUris:
-          - {{ .Values.storefrontRedirectUrl }}/*
+          - {{ .Values.storefrontRedirectUrls.prod }}/*
+          - {{ .Values.storefrontRedirectUrls.dev }}/*
+          - {{ .Values.storefrontRedirectUrls.staging }}/*
           - http://localhost:8087/*
         webOrigins: [ ]
         notBefore: 0
@@ -935,6 +939,8 @@ spec:
         clientAuthenticatorType: client-secret
         redirectUris:
           - http://api.yas.local.com/*
+          - http://api.dev.local.com/*
+          - http://api.staging.local.com/*
           - http://localhost:8080/*
           - http://localhost:8081/*
           - http://localhost:8083/*
@@ -949,6 +955,8 @@ spec:
           - http://localhost:8093/*
         webOrigins:
           - http://api.yas.local.com
+          - http://api.dev.local.com
+          - http://api.staging.local.com
           - http://localhost:8080
           - http://localhost:8081
           - http://localhost:8083
