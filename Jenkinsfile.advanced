@@ -2,6 +2,7 @@ pipeline {
     agent any
     parameters {
         string(name: 'DEPLOY_ENV',       defaultValue: 'dev')
+        string(name: 'COMMIT_ID',        defaultValue: 'latest')
         string(name: 'IMAGE_TAG',        defaultValue: 'latest')
         string(name: 'CHANGED_SERVICES', defaultValue: '')
     }
@@ -14,7 +15,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: "https://github.com/\${GITHUB_REPO}",
+                    url: "https://github.com/${GITHUB_REPO}",
                     credentialsId: GITHUB_CREDS
             }
         }
