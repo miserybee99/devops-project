@@ -2,6 +2,7 @@ pipeline {
     agent any
     parameters {
         string(name: 'DEPLOY_ENV',       defaultValue: 'dev')
+        string(name: 'COMMIT_ID',        defaultValue: 'latest')
         string(name: 'IMAGE_TAG',        defaultValue: 'latest')
         string(name: 'CHANGED_SERVICES', defaultValue: '')
     }
@@ -14,7 +15,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: "https://github.com/\${GITHUB_REPO}",
+                    url: "https://github.com/${GITHUB_REPO}",
                     credentialsId: GITHUB_CREDS
             }
         }
@@ -35,13 +36,13 @@ pipeline {
                         for (svc in services) {
                             svc = svc.trim()
                             sh """
-                                yq -i '.backend.image.tag = "${params.IMAGE_TAG}"' \
+                                yq -i '.backend.image.tag = "${params.COMMIT_ID}"' \
                                     overlays/dev/${svc}.yaml
                             """
                         }
                         sh """
                             git add overlays/dev/
-                            git diff --cached --quiet || git commit -m "cd: [dev] update ${params.CHANGED_SERVICES} to ${params.IMAGE_TAG} [skip ci]"
+                            git diff --cached --quiet || git commit -m "cd: [dev] update ${params.CHANGED_SERVICES} to ${params.COMMIT_ID} [skip ci]"
                             git push https://\${GIT_USER}:\${GIT_TOKEN}@github.com/\${GITHUB_REPO} main
                         """
                     }
@@ -84,14 +85,10 @@ pipeline {
 
     post {
         success {
-            echo """
-            CD successfully!
-            Dev     : ${params.CHANGED_SERVICES} → ${params.IMAGE_TAG}
-            Staging : ${params.DEPLOY_ENV == 'staging' ? 'updated' : 'skipped'}
-            """
+            echo "CD completed successfully!"
         }
         failure {
-            echo "CD failure. Watch logs for details."
+            echo "CD failed. Watch logs for details."
         }
     }
 }
