@@ -1,4 +1,4 @@
 FROM eclipse-temurin:21-jre-alpine
 COPY target/payment*.jar app.jar
 ENTRYPOINT ["java", "-jar", "/app.jar"]
-# Trigger to deploy services
+# Trigger to build image

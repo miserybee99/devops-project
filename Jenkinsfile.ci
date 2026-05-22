@@ -66,18 +66,10 @@ pipeline {
 
                     def frontendServices = [ 'storefront', 'backoffice' ]
 
-                    def changedFiles = []
-                    try {
-                        changedFiles = sh(
-                            script: "git diff --name-only HEAD~1 HEAD",
-                            returnStdout: true
-                        ).trim().split('\n').findAll { it }
-                    } catch (e) {
-                        echo "Could not detect changes (first build?). Building all services."
-                        env.CHANGED_BACKEND_SERVICES  = backendServices.join(',')
-                        env.CHANGED_FRONTEND_SERVICES = frontendServices.join(',')
-                        return
-                    }
+                    def changedFiles = sh(
+                        script: "git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD",
+                        returnStdout: true
+                    ).trim().split("\n")
 
                     echo "Changed files:\n${changedFiles.join('\n')}"
 
@@ -88,11 +80,11 @@ pipeline {
                     def commonLibChanged = changedFiles.any { it.startsWith('common-library/') } || rootPomChanged
 
                     if (commonLibChanged) {
-                        changedBackend.addAll(allServices)
+                        changedBackend.addAll(backendServices)
                     }
 
                     for (file in changedFiles) {
-                        def service = allServices.find { file.startsWith("${it}/") }
+                        def service = backendServices.find { file.startsWith("${it}/") }
                         if (service) changedBackend.add(service)
 
                         def frontend = frontendServices.find { file.startsWith("${it}/") }
