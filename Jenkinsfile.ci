@@ -88,7 +88,7 @@ pipeline {
         
         stage('Build Services') {
             when {
-                expression { return env.CHANGED_SERVICES != null }
+                expression { return env.CHANGED_SERVICES != "" }
             }
             steps {
                 script {
@@ -121,7 +121,7 @@ pipeline {
 
         stage('Docker Login') {
             when {
-                expression { return env.CHANGED_SERVICES != null }
+                expression { return env.CHANGED_SERVICES != "" }
             }
             steps {
                 withCredentials([usernamePassword(
@@ -138,7 +138,7 @@ pipeline {
 
         stage('Build & Push Images') {
             when {
-                expression { return env.CHANGED_SERVICES != null }
+                expression { return env.CHANGED_SERVICES != "" }
             }
             steps {
                 script {
@@ -174,7 +174,7 @@ pipeline {
         stage('Trigger Deploy') {
             when {
                 expression { 
-                    return env.CHANGED_SERVICES != null && env.DEPLOY_ENV != ""
+                    return env.CHANGED_SERVICES != "" && env.DEPLOY_ENV != ""
                 }
             }
             steps {
