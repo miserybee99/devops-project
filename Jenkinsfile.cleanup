@@ -25,8 +25,6 @@ pipeline {
                         """
                     } else {
                         echo "Xóa tất cả services trong namespace ${NAMESPACE}"
-                        // Lấy danh sách từ helm list thay vì ls charts/
-                        // để chỉ xóa những gì đã được install
                         def releases = sh(
                             script: "helm list -n ${NAMESPACE} -q",
                             returnStdout: true
@@ -37,7 +35,7 @@ pipeline {
                                 sh "helm uninstall ${release.trim()} --namespace ${NAMESPACE} 2>/dev/null || true"
                             }
                         } else {
-                            echo "Không có release nào trong namespace ${NAMESPACE}"
+                            echo "There is no release in namespace ${NAMESPACE}"
                         }
                     }
                 }
