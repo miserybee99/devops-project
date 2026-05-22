@@ -17,67 +17,122 @@ pipeline {
         stage('Prepare') {
             steps {
                 script {
-                    def commitId = env.GIT_COMMIT?.take(8)
-    
-                    if (!commitId) {
-                        echo "GIT_COMMIT null, fallback to git rev-parse"
-                        commitId = sh(
+                    def commitId = sh(
                             script: "git rev-parse --short HEAD",
                             returnStdout: true
                         ).trim()
-                    }
     
                     env.COMMIT_ID = commitId
                     echo "COMMIT_ID: ${env.COMMIT_ID}"
+
+                    def currentBranch = env.BRANCH_NAME ?: sh(
+                        script: "git rev-parse --abbrev-ref HEAD",
+                        returnStdout: true
+                    ).trim()
+                    env.CURRENT_BRANCH = currentBranch
+                    echo "Current branch: ${env.CURRENT_BRANCH}"
+
+                    if (currentBranch == "main") {
+                        def gitTag = sh(
+                            script: "git tag --points-at HEAD | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+' || true",
+                            returnStdout: true
+                        ).trim()
+
+                        if (gitTag) {
+                            env.DEPLOY_ENV = "staging"
+                            env.EXTRA_TAG = gitTag
+                        } else {
+                            env.DEPLOY_ENV = "dev"
+                            env.EXTRA_TAG = "latest"
+                        }
+                        echo "Main branch → EXTRA_TAG: ${env.EXTRA_TAG}"
+                    } else {
+                        env.DEPLOY_ENV = ""
+                        env.EXTRA_TAG = ""
+                        echo "Non-main branch → no extra tag"
+                    }
                 }
             }
         }
 
-        stage('Detect Changed Services') {
+        stage('Detect Changes') {
             steps {
                 script {
-                    // Lấy danh sách file thay đổi
+                    def backendServices = [
+                        'common-library', 'backoffice-bff', 'cart', 'customer', 'delivery', 'inventory',
+                        'location', 'media', 'order', 'payment', 'payment-paypal', 'product', 'promotion',
+                        'rating', 'recommendation', 'sampledata', 'search', 'storefront-bff', 'tax', 'webhook'
+                    ]
+
+                    def frontendServices = [ 'storefront', 'backoffice' ]
+
                     def changedFiles = sh(
-                        script: "git diff --name-only HEAD~1 HEAD",
+                        script: "git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD",
                         returnStdout: true
                     ).trim().split("\n")
 
-                    def services = []
+                    echo "Changed files:\n${changedFiles.join('\n')}"
+
+                    def changedBackend  = [] as Set
+                    def changedFrontend = [] as Set
+
+                    def rootPomChanged = changedFiles.any { it == 'pom.xml' }
+                    def commonLibChanged = changedFiles.any { it.startsWith('common-library/') } || rootPomChanged
+
+                    if (commonLibChanged) {
+                        changedBackend.addAll(backendServices)
+                    }
 
                     for (file in changedFiles) {
-                        def parts = file.tokenize("/")
-                        if (parts.size() > 1) {
-                            def svc = parts[0]
-                            if (!services.contains(svc) && fileExists("${svc}/Dockerfile")) {
-                                services.add(svc)
-                            }
-                        }
+                        def service = backendServices.find { file.startsWith("${it}/") }
+                        if (service) changedBackend.add(service)
+
+                        def frontend = frontendServices.find { file.startsWith("${it}/") }
+                        if (frontend) changedFrontend.add(frontend)
                     }
 
-                    if (services.isEmpty()) {
-                        echo "No service changed → skip build"
-                        currentBuild.result = 'SUCCESS'
-                        return
-                    }
+                    env.CHANGED_BACKEND_SERVICES  = changedBackend ? changedBackend.toList().join(',') : ''
+                    env.CHANGED_FRONTEND_SERVICES = changedFrontend ? changedFrontend.toList().join(',') : ''
 
-                    env.CHANGED_SERVICES = services.join(",")
-                    echo "Changed services: ${env.CHANGED_SERVICES}"
+                    def allChanged = []
+                    allChanged.addAll(changedBackend)
+                    allChanged.addAll(changedFrontend)
+                    env.CHANGED_SERVICES = allChanged ? allChanged.join(',') : ''
+
+                    echo "Backend services to build:  ${env.CHANGED_BACKEND_SERVICES ?: '(none)'}"
+                    echo "Frontend services to build: ${env.CHANGED_FRONTEND_SERVICES ?: '(none)'}"
                 }
             }
         }
         
-        stage('Build JAR') {
+        stage('Build Services') {
             steps {
                 script {
-                    def services = env.CHANGED_SERVICES.split(',')
-                    for (service in services) {
-                        echo "Compile ${service}..."
-                        // Chạy Maven Wrapper để build file .jar
-                        // -DskipTests giúp bỏ qua việc chạy unit test để tăng tốc độ build
-                        sh """
-                        chmod +x mvnw
-                        ./mvnw clean install -pl ${service} -am -DskipTests
-                        """
+                    if (env.CHANGED_FRONTEND_SERVICES?.trim()) {
+                        def frontendServices =
+                            env.CHANGED_FRONTEND_SERVICES
+                                .split(',')
+                                .findAll { it?.trim() }
+                        for (svc in frontendServices) {
+                            echo "Building UI service: ${svc} (npm)"
+                            sh """
+                                cd ${svc}
+                                npm install --prefer-offline
+                                npm run build
+                                cd ..
+                            """
+                        }
+                    }
+
+                    if (env.CHANGED_BACKEND_SERVICES?.trim()) {
+                        sh "chmod +x mvnw"
+                        def modules =
+                            env.CHANGED_BACKEND_SERVICES
+                                .split(',')
+                                .findAll { it?.trim() }
+                                .join(',')
+                        echo "Building backend services: ${modules} (Maven)"
+                        sh "./mvnw clean install -pl ${modules} -am -DskipTests"
                     }
                 }
             }
@@ -85,7 +140,7 @@ pipeline {
 
         stage('Docker Login') {
             when {
-                expression { return env.CHANGED_SERVICES != null }
+                expression { return env.CHANGED_SERVICES != "" }
             }
             steps {
                 withCredentials([usernamePassword(
@@ -100,9 +155,9 @@ pipeline {
             }
         }
 
-        stage('Build & Push Changed Services') {
+        stage('Build & Push Images') {
             when {
-                expression { return env.CHANGED_SERVICES != null }
+                expression { return env.CHANGED_SERVICES != "" }
             }
             steps {
                 script {
@@ -118,16 +173,39 @@ pipeline {
                             --no-cache \
                             -t ${image}:${COMMIT_ID} \
                             -f ${svc}/Dockerfile ./${svc}
-                        docker tag ${image}:${COMMIT_ID} ${image}:latest
                         """
                         retry(3) {
-                            sh "docker push ${image}:${COMMIT_ID}"
+                            sh "docker push ${image}:${env.COMMIT_ID}"
                         }
                         
-                        retry(3) {
-                            sh "docker push ${image}:latest"
+                        if (env.EXTRA_TAG) {
+                            echo "Tagging ${image}:${env.COMMIT_ID} → ${image}:${env.EXTRA_TAG}"
+                            sh "docker tag ${image}:${env.COMMIT_ID} ${image}:${env.EXTRA_TAG}"
+                            retry(3) {
+                                sh "docker push ${image}:${env.EXTRA_TAG}"
+                            }
                         }
                     }
+                }
+            }
+        }
+
+        stage('Trigger Deploy') {
+            when {
+                expression { 
+                    return env.CHANGED_SERVICES != "" && env.DEPLOY_ENV != ""
+                }
+            }
+            steps {
+                script {
+                    build job: 'developer_deploy',
+                        wait: false,
+                        parameters: [
+                            string(name: 'DEPLOY_ENV',       value: env.DEPLOY_ENV),
+                            string(name: 'COMMIT_ID',        value: env.COMMIT_ID),
+                            string(name: 'IMAGE_TAG',        value: env.EXTRA_TAG),
+                            string(name: 'CHANGED_SERVICES', value: env.CHANGED_SERVICES)
+                        ]
                 }
             }
         }
@@ -138,14 +216,17 @@ pipeline {
             script {
                 if (env.CHANGED_SERVICES) {
                     def services = env.CHANGED_SERVICES.split(",")
-
                     for (svc in services) {
                         def image = "${DOCKERHUB_USR}/${svc}"
-                        sh "docker rmi ${image}:${COMMIT_ID} || true"
-                        sh "docker rmi ${image}:latest || true"
+                        sh "docker rmi ${image}:${env.COMMIT_ID} || true"
+                        if (env.EXTRA_TAG) {
+                            sh "docker rmi ${image}:${env.EXTRA_TAG} || true"
+                        }
                     }
                 }
             }
         }
+        success { echo "CI completed successfully!" }
+        failure { echo "CI failed. Check logs for details." }
     }
 }
