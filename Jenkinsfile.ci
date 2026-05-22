@@ -55,49 +55,69 @@ pipeline {
             }
         }
 
-        stage('Detect Changed Services') {
+        stage('Detect Changes') {
             steps {
                 script {
-                    def changedFiles = sh(
-                        script: "git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD",
-                        returnStdout: true
-                    ).trim().split("\n")
+                    def backendServices = [
+                        'common-library', 'backoffice-bff', 'cart', 'customer', 'delivery', 'inventory',
+                        'location', 'media', 'order', 'payment', 'payment-paypal', 'product', 'promotion',
+                        'rating', 'recommendation', 'sampledata', 'search', 'storefront-bff', 'tax', 'webhook'
+                    ]
 
-                    def services = []
+                    def frontendServices = [ 'storefront', 'backoffice' ]
+
+                    def changedFiles = []
+                    try {
+                        changedFiles = sh(
+                            script: "git diff --name-only HEAD~1 HEAD",
+                            returnStdout: true
+                        ).trim().split('\n').findAll { it }
+                    } catch (e) {
+                        echo "Could not detect changes (first build?). Building all services."
+                        env.CHANGED_BACKEND_SERVICES  = backendServices.join(',')
+                        env.CHANGED_FRONTEND_SERVICES = frontendServices.join(',')
+                        return
+                    }
+
+                    echo "Changed files:\n${changedFiles.join('\n')}"
+
+                    def changedBackend  = [] as Set
+                    def changedFrontend = [] as Set
+
+                    def rootPomChanged = changedFiles.any { it == 'pom.xml' }
+                    def commonLibChanged = changedFiles.any { it.startsWith('common-library/') } || rootPomChanged
+
+                    if (commonLibChanged) {
+                        changedBackend.addAll(allServices)
+                    }
+
                     for (file in changedFiles) {
-                        def parts = file.tokenize("/")
-                        if (parts.size() > 1) {
-                            def svc = parts[0]
-                            if (!services.contains(svc) && fileExists("${svc}/Dockerfile")) {
-                                services.add(svc)
-                            }
-                        }
+                        def service = allServices.find { file.startsWith("${it}/") }
+                        if (service) changedBackend.add(service)
+
+                        def frontend = frontendServices.find { file.startsWith("${it}/") }
+                        if (frontend) changedFrontend.add(frontend)
                     }
-                    
-                    if (services.isEmpty()) {
-                        echo "No service changed → skip build"
-                        env.CHANGED_SERVICES = ""
-                    }
-                    else {
-                        env.CHANGED_SERVICES = services.join(",")
-                        echo "Changed services: ${env.CHANGED_SERVICES}"
-                    }
+
+                    env.CHANGED_BACKEND_SERVICES  = changedBackend ? changedBackend.toList().join(',') : ''
+                    env.CHANGED_FRONTEND_SERVICES = changedFrontend ? changedFrontend.toList().join(',') : ''
+
+                    def allChanged = []
+                    allChanged.addAll(changedBackend)
+                    allChanged.addAll(changedFrontend)
+                    env.CHANGED_SERVICES = allChanged ? allChanged.join(',') : ''
+
+                    echo "Backend services to build:  ${env.CHANGED_BACKEND_SERVICES ?: '(none)'}"
+                    echo "Frontend services to build: ${env.CHANGED_FRONTEND_SERVICES ?: '(none)'}"
                 }
             }
         }
         
         stage('Build Services') {
-            when {
-                expression { return env.CHANGED_SERVICES != "" }
-            }
             steps {
                 script {
-                    def uiServices = ["backoffice-ui", "storefront-ui"]
-                    def services   = env.CHANGED_SERVICES.split(",").toList()
-
-                    def uiChanged = services.findAll { it in uiServices }
-                    if (uiChanged) {
-                        for (svc in uiChanged) {
+                    if (env.CHANGED_FRONTEND_SERVICES) {
+                        for (svc in env.CHANGED_FRONTEND_SERVICES) {
                             echo "Building UI service: ${svc} (npm)"
                             sh """
                                 cd ${svc}
@@ -108,10 +128,9 @@ pipeline {
                         }
                     }
 
-                    def backendChanged = services.findAll { !(it in uiServices) }
-                    if (backendChanged) {
+                    if (env.CHANGED_BACKEND_SERVICES) {
                         sh "chmod +x mvnw"
-                        def modules = backendChanged.join(",")
+                        def modules = env.CHANGED_BACKEND_SERVICES.join(",")
                         echo "Building backend services: ${modules} (Maven)"
                         sh "./mvnw clean install -pl ${modules} -am -DskipTests"
                     }
