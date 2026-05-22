@@ -91,28 +91,30 @@ pipeline {
                 expression { return env.CHANGED_SERVICES != null }
             }
             steps {
-                def uiServices = ["backoffice-ui", "storefront-ui"]
-                def services   = env.CHANGED_SERVICES.split(",").toList()
+                script {
+                    def uiServices = ["backoffice-ui", "storefront-ui"]
+                    def services   = env.CHANGED_SERVICES.split(",").toList()
 
-                def uiChanged = services.findAll { it in uiServices }
-                if (uiChanged) {
-                    for (svc in uiChanged) {
-                        echo "Building UI service: ${svc} (npm)"
-                        sh """
-                            cd ${svc}
-                            npm install --prefer-offline
-                            npm run build
-                            cd ..
-                        """
+                    def uiChanged = services.findAll { it in uiServices }
+                    if (uiChanged) {
+                        for (svc in uiChanged) {
+                            echo "Building UI service: ${svc} (npm)"
+                            sh """
+                                cd ${svc}
+                                npm install --prefer-offline
+                                npm run build
+                                cd ..
+                            """
+                        }
                     }
-                }
 
-                def backendChanged = services.findAll { !(it in uiServices) }
-                if (backendChanged) {
-                    sh "chmod +x mvnw"
-                    def modules = backendChanged.join(",")
-                    echo "Building backend services: ${modules} (Maven)"
-                    sh "./mvnw clean install -pl ${modules} -am -DskipTests"
+                    def backendChanged = services.findAll { !(it in uiServices) }
+                    if (backendChanged) {
+                        sh "chmod +x mvnw"
+                        def modules = backendChanged.join(",")
+                        echo "Building backend services: ${modules} (Maven)"
+                        sh "./mvnw clean install -pl ${modules} -am -DskipTests"
+                    }
                 }
             }
         }
@@ -154,7 +156,7 @@ pipeline {
                             -f ${svc}/Dockerfile ./${svc}
                         """
                         retry(3) {
-                            sh "docker push ${image}:${env.IMAGE_TAG}"
+                            sh "docker push ${image}:${env.COMMIT_ID}"
                         }
                         
                         if (env.EXTRA_TAG) {
