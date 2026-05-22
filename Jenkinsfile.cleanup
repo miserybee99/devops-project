@@ -4,27 +4,22 @@ pipeline {
         string(name: 'SERVICE_NAME', defaultValue: '', description: 'Name of removed service. Empty to remove all.')
     }
     environment {
-        NAMESPACE  = 'yas'
+        NAMESPACE      = 'yas'
+        DOCKERHUB_USER = 'bync'
     }
     stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'dev',
-                    url: 'https://github.com/Phuc-215/yas.git',
-                    credentialsId: 'github-credentials'
-            }
-        }
-        stage('Cleanup') {
+
+        stage('Cleanup Helm Releases') {
             steps {
                 script {
                     if (params.SERVICE_NAME?.trim()) {
-                        echo "Xóa service: ${params.SERVICE_NAME}"
+                        echo "Delete service: ${params.SERVICE_NAME}"
                         sh """
                             helm uninstall ${params.SERVICE_NAME} \
                                 --namespace ${NAMESPACE} 2>/dev/null || true
                         """
                     } else {
-                        echo "Xóa tất cả services trong namespace ${NAMESPACE}"
+                        echo "Delete all services in namespace ${NAMESPACE}"
                         def releases = sh(
                             script: "helm list -n ${NAMESPACE} -q",
                             returnStdout: true
@@ -41,6 +36,42 @@ pipeline {
                 }
             }
         }
+
+        stage('Cleanup Images') {
+            steps {
+                script {
+
+                    def nodes = sh(
+                        script: "kubectl get nodes -o name",
+                        returnStdout: true
+                    ).trim().split('\n')
+
+                    for (n in nodes) {
+                        def node = n.replace("node/", "")
+                        echo "Cleanup images on ${node}"
+
+                        sh """
+                            kubectl debug node/${node} \
+                                --image=ubuntu \
+                                --quiet \
+                                -- chroot /host sh -c '
+                                    IMAGE_IDS=\$(crictl images | grep "bync/" | awk "{print \\\$3}")
+
+                                    for id in \$IMAGE_IDS
+                                    do
+                                        crictl rmi \$id || true
+                                    done
+
+                                    crictl rmi --prune || true
+                                '
+                        """
+                    }
+
+                    sh "kubectl delete pods -n default -l app=kubectl-debug --ignore-not-found || true"
+                }
+            }
+        }
+
         stage('Verify') {
             steps {
                 sh "helm list -n ${NAMESPACE}"

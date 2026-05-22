@@ -2,40 +2,33 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'backoffice-bff', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_backoffice_bff)')
-        string(name: 'backoffice-ui', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_backoffice_ui)')
-        string(name: 'cart-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_cart_service)')
-        string(name: 'customer-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_customer_service)')
+        string(name: 'backoffice-bff',    defaultValue: 'main', description: 'Name of Working Branch (vd: dev_backoffice_bff)')
+        string(name: 'backoffice-ui',     defaultValue: 'main', description: 'Name of Working Branch (vd: dev_backoffice_ui)')
+        string(name: 'cart-service',      defaultValue: 'main', description: 'Name of Working Branch (vd: dev_cart_service)')
+        string(name: 'customer-service',  defaultValue: 'main', description: 'Name of Working Branch (vd: dev_customer_service)')
         string(name: 'inventory-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_inventory_service)')
-        string(name: 'location-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_location_service)')
-        string(name: 'media-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_media_service)')
-        string(name: 'order-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_order_service)')
-        string(name: 'product-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_product_service)')
-        string(name: 'rating-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_rating_service)')
-        string(name: 'search-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_search_service)')
-        string(name: 'storefront-bff', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_storefront_bff)')
-        string(name: 'storefront-ui', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_storefront_ui)')
-        string(name: 'tax-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_tax_service)')
+        string(name: 'location-service',  defaultValue: 'main', description: 'Name of Working Branch (vd: dev_location_service)')
+        string(name: 'media-service',     defaultValue: 'main', description: 'Name of Working Branch (vd: dev_media_service)')
+        string(name: 'order-service',     defaultValue: 'main', description: 'Name of Working Branch (vd: dev_order_service)')
+        string(name: 'product-service',   defaultValue: 'main', description: 'Name of Working Branch (vd: dev_product_service)')
+        string(name: 'rating-service',    defaultValue: 'main', description: 'Name of Working Branch (vd: dev_rating_service)')
+        string(name: 'search-service',    defaultValue: 'main', description: 'Name of Working Branch (vd: dev_search_service)')
+        string(name: 'storefront-bff',    defaultValue: 'main', description: 'Name of Working Branch (vd: dev_storefront_bff)')
+        string(name: 'storefront-ui',     defaultValue: 'main', description: 'Name of Working Branch (vd: dev_storefront_ui)')
+        string(name: 'tax-service',       defaultValue: 'main', description: 'Name of Working Branch (vd: dev_tax_service)')
     }
 
     environment {
-        NAMESPACE        = 'yas'
-        DOMAIN           = 'yas.local.com'
-        DOCKERHUB_USER   = 'bync'
-	    CHARTS_PATH      = 'k8s/charts'
+        NAMESPACE      = 'yas'
+        DOMAIN         = 'yas.local.com'
+        DOCKERHUB_USER = 'bync'
+        CHARTS_PATH    = 'k8s/charts'
+        GIT_REPO       = 'https://github.com/miserybee99/devops-project.git'
     }
 
     stages {
 
-        stage('Checkout') {
-            steps {
-                git branch: "${params.BRANCH_NAME}",
-                    url: 'https://github.com/miserybee99/devops-project.git',
-                    credentialsId: 'github-credentials'
-            }
-        }
-
-        stage('Checkout & Resolve Tags') {
+        stage('Resolve Tags') {
             steps {
                 script {
                     def services = [
@@ -44,7 +37,7 @@ pipeline {
                         "backoffice-bff", "backoffice-ui", "storefront-bff", "storefront-ui"
                     ]
 
-                    env.SERVICE_TAGS = ""
+                    def serviceTags = [:]
 
                     for (svc in services) {
                         def paramName = (svc in ["backoffice-bff", "backoffice-ui", "storefront-bff", "storefront-ui"])
@@ -52,13 +45,13 @@ pipeline {
                             : "${svc}-service"
 
                         def branch = params[paramName] ?: 'main'
-                        def tag = 'latest'
+                        def tag    = 'latest'
 
                         if (branch != 'main') {
                             def commitId = sh(
                                 script: """
-                                    git ls-remote https://github.com/miserybee99/devops-project.git refs/heads/${branch} \
-                                    | awk '{print substr(\$1,1,7)}'
+                                    git ls-remote ${GIT_REPO} refs/heads/${branch} \
+                                    | awk '{print substr(\$1,1,8)}'
                                 """,
                                 returnStdout: true
                             ).trim()
@@ -73,8 +66,11 @@ pipeline {
                             echo "[${svc}] Branch: main → Tag: latest"
                         }
 
-                        env["TAG_${svc.replace('-', '_').toUpperCase()}"] = tag
+                        serviceTags[svc] = tag
                     }
+
+                    env.SERVICE_TAGS = groovy.json.JsonOutput.toJson(serviceTags)
+                    echo "SERVICE_TAGS: ${env.SERVICE_TAGS}"
                 }
             }
         }
@@ -92,26 +88,24 @@ pipeline {
         stage('Deploy Applications') {
             steps {
                 script {
+                    def serviceTags = readJSON text: env.SERVICE_TAGS
                     def services = [
                         "cart", "customer", "inventory", "location", "media",
-                        "order", "product", "rating", "search", "tax",
-                        "backoffice-bff", "backoffice-ui", "storefront-bff", "storefront-ui"
+                        "order", "product", "rating", "search", "tax"
                     ]
 
                     for (svc in services) {
-                        def envKey = "TAG_${svc.replace('-', '_').toUpperCase()}"
-                        def tag = env[envKey] ?: 'latest'
-                        echo "Deploying ${svc} with tag ${tag}"
-                        
+                        def tag = serviceTags[svc] ?: 'latest'
+                        echo "Deploying ${svc} with tag: ${tag}"
                         sh """
                             helm dependency build ${CHARTS_PATH}/${svc} --skip-refresh || true
                             helm upgrade --install ${svc} ${CHARTS_PATH}/${svc} \
-                            --namespace ${NAMESPACE} \
-                            --create-namespace \
-                            --set backend.ingress.host=api.${DOMAIN} \
-                            --set backend.image.repository=${DOCKERHUB_USER}/${svc} \
-                            --set backend.image.tag=${tag} \
-                            --wait --timeout 3m \
+                                --namespace ${NAMESPACE} \
+                                --create-namespace \
+                                --set backend.ingress.host=api.${DOMAIN} \
+                                --set backend.image.repository=${DOCKERHUB_USER}/${svc} \
+                                --set backend.image.tag=${tag} \
+                                --wait --timeout 3m \
                             || true
                         """
                     }
@@ -122,8 +116,9 @@ pipeline {
         stage('Deploy Backoffice Layer') {
             steps {
                 script {
-                    def bffTag = env.TAG_BACKOFFICE_BFF ?: 'latest'
-                    def uiTag  = env.TAG_BACKOFFICE_UI  ?: 'latest'
+                    def serviceTags = readJSON text: env.SERVICE_TAGS
+                    def bffTag = serviceTags['backoffice-bff'] ?: 'latest'
+                    def uiTag  = serviceTags['backoffice-ui']  ?: 'latest'
 
                     echo "Deploying backoffice-bff with tag: ${bffTag}"
                     sh """
@@ -146,12 +141,13 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Deploy Storefront Layer') {
             steps {
                 script {
-                    def bffTag = env.TAG_STOREFRONT_BFF ?: 'latest'
-                    def uiTag  = env.TAG_STOREFRONT_UI  ?: 'latest'
+                    def serviceTags = readJSON text: env.SERVICE_TAGS
+                    def bffTag = serviceTags['storefront-bff'] ?: 'latest'
+                    def uiTag  = serviceTags['storefront-ui']  ?: 'latest'
 
                     echo "Deploying storefront-bff with tag: ${bffTag}"
                     sh """
@@ -174,13 +170,13 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Deploy Swagger UI') {
             steps {
                 sh """
                     helm upgrade --install swagger-ui ${CHARTS_PATH}/swagger-ui \
                         --namespace ${NAMESPACE} \
-                        --set ingress.host=api.${params.DOMAIN}
+                        --set ingress.host=api.${DOMAIN}
                 """
             }
         }
@@ -188,10 +184,10 @@ pipeline {
 
     post {
         success {
-            echo "Deploy successfully!"
+            echo "Deploy completed successfully!"
         }
         failure {
-            echo "Deploy failure. Watch logs for details."
+            echo "Deploy failed. Watch logs for details."
         }
     }
 }

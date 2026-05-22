@@ -202,6 +202,7 @@ pipeline {
                         wait: false,
                         parameters: [
                             string(name: 'DEPLOY_ENV',       value: env.DEPLOY_ENV),
+                            string(name: 'COMMIT_ID',        value: env.COMMIT_ID),
                             string(name: 'IMAGE_TAG',        value: env.EXTRA_TAG),
                             string(name: 'CHANGED_SERVICES', value: env.CHANGED_SERVICES)
                         ]
@@ -225,7 +226,7 @@ pipeline {
                 }
             }
         }
-        success { echo "Pipeline completed successfully!" }
-        failure { echo "Pipeline failed. Check logs for details." }
+        success { echo "CI completed successfully!" }
+        failure { echo "CI failed. Check logs for details." }
     }
 }
