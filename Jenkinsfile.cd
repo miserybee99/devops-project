@@ -2,12 +2,25 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'SERVICE_NAME', defaultValue: 'tax', description: 'Name of Service (vd: tax)')
-        string(name: 'BRANCH_NAME', defaultValue: 'dev', description: 'Branch of Service (vd: dev-tax-service)')
+        string(name: 'backoffice-bff', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_backoffice_bff)')
+        string(name: 'backoffice-ui', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_backoffice_ui)')
+        string(name: 'cart-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_cart_service)')
+        string(name: 'customer-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_customer_service)')
+        string(name: 'inventory-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_inventory_service)')
+        string(name: 'location-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_location_service)')
+        string(name: 'media-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_media_service)')
+        string(name: 'order-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_order_service)')
+        string(name: 'product-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_product_service)')
+        string(name: 'rating-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_rating_service)')
+        string(name: 'search-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_search_service)')
+        string(name: 'storefront-bff', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_storefront_bff)')
+        string(name: 'storefront-ui', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_storefront_ui)')
+        string(name: 'tax-service', defaultValue: 'main', description: 'Name of Working Branch (vd: dev_tax_service)')
     }
 
     environment {
-        NAMESPACE        = 'yas-test'
+        NAMESPACE        = 'yas'
+        DOMAIN           = 'yas.local.com'
         DOCKERHUB_USER   = 'bync'
 	    CHARTS_PATH      = 'k8s/charts'
     }
@@ -22,14 +35,46 @@ pipeline {
             }
         }
 
-        stage('Get commit ID') {
+        stage('Checkout & Resolve Tags') {
             steps {
                 script {
-                    env.COMMIT_ID = sh(
-                        script: 'git rev-parse --short HEAD',
-                        returnStdout: true
-                    ).trim()
-                    echo "Commit ID: ${env.COMMIT_ID}"
+                    def services = [
+                        "cart", "customer", "inventory", "location", "media",
+                        "order", "product", "rating", "search", "tax",
+                        "backoffice-bff", "backoffice-ui", "storefront-bff", "storefront-ui"
+                    ]
+
+                    env.SERVICE_TAGS = ""
+
+                    for (svc in services) {
+                        def paramName = (svc in ["backoffice-bff", "backoffice-ui", "storefront-bff", "storefront-ui"])
+                            ? svc
+                            : "${svc}-service"
+
+                        def branch = params[paramName] ?: 'main'
+                        def tag = 'latest'
+
+                        if (branch != 'main') {
+                            def commitId = sh(
+                                script: """
+                                    git ls-remote https://github.com/miserybee99/devops-project.git refs/heads/${branch} \
+                                    | awk '{print substr(\$1,1,7)}'
+                                """,
+                                returnStdout: true
+                            ).trim()
+
+                            if (commitId) {
+                                tag = commitId
+                                echo "[${svc}] Branch: ${branch} → Tag: ${tag}"
+                            } else {
+                                echo "[${svc}] WARNING: Not found branch '${branch}', fallback to latest"
+                            }
+                        } else {
+                            echo "[${svc}] Branch: main → Tag: latest"
+                        }
+
+                        env["TAG_${svc.replace('-', '_').toUpperCase()}"] = tag
+                    }
                 }
             }
         }
@@ -39,7 +84,7 @@ pipeline {
                 sh """
                     helm dependency build ${CHARTS_PATH}/yas-configuration
                     helm upgrade --install yas-configuration ${CHARTS_PATH}/yas-configuration \
-                        --namespace yas --create-namespace
+                        --namespace ${NAMESPACE} --create-namespace
                 """
             }
         }
@@ -48,20 +93,22 @@ pipeline {
             steps {
                 script {
                     def services = [
-                        "cart","customer","inventory","location","media",
-                        "order","payment","product","promotion","rating",
-                        "search","tax","recommendation","webhook","sampledata"
+                        "cart", "customer", "inventory", "location", "media",
+                        "order", "product", "rating", "search", "tax",
+                        "backoffice-bff", "backoffice-ui", "storefront-bff", "storefront-ui"
                     ]
 
                     for (svc in services) {
-                        def tag = (svc == params.SERVICE) ? COMMIT_ID : "latest"
+                        def envKey = "TAG_${svc.replace('-', '_').toUpperCase()}"
+                        def tag = env[envKey] ?: 'latest'
                         echo "Deploying ${svc} with tag ${tag}"
+                        
                         sh """
                             helm dependency build ${CHARTS_PATH}/${svc} --skip-refresh || true
                             helm upgrade --install ${svc} ${CHARTS_PATH}/${svc} \
                             --namespace ${NAMESPACE} \
                             --create-namespace \
-                            --set backend.ingress.host=api.yas.local.com \
+                            --set backend.ingress.host=api.${DOMAIN} \
                             --set backend.image.repository=${DOCKERHUB_USER}/${svc} \
                             --set backend.image.tag=${tag} \
                             --wait --timeout 3m \
@@ -74,28 +121,52 @@ pipeline {
 
         stage('Deploy Backoffice Layer') {
             steps {
+                def bffTag = env.TAG_BACKOFFICE_BFF ?: 'latest'
+                def uiTag  = env.TAG_BACKOFFICE_UI  ?: 'latest'
+
+                echo "Deploying backoffice-bff with tag: ${bffTag}"
                 sh """
                     helm dependency build ${CHARTS_PATH}/backoffice-bff
                     helm upgrade --install backoffice-bff ${CHARTS_PATH}/backoffice-bff \
                         --namespace ${NAMESPACE} \
-                        --set backend.ingress.host=backoffice.${params.DOMAIN}
+                        --set backend.ingress.host=backoffice.${DOMAIN} \
+                        --set backend.image.repository=${DOCKERHUB_USER}/backoffice-bff \
+                        --set backend.image.tag=${bffTag}
+                """
+
+                echo "Deploying backoffice-ui with tag: ${uiTag}"
+                sh """
                     helm dependency build ${CHARTS_PATH}/backoffice-ui
                     helm upgrade --install backoffice-ui ${CHARTS_PATH}/backoffice-ui \
-                        --namespace ${NAMESPACE}
+                        --namespace ${NAMESPACE} \
+                        --set frontend.image.repository=${DOCKERHUB_USER}/backoffice-ui \
+                        --set frontend.image.tag=${uiTag}
                 """
             }
         }
         
         stage('Deploy Storefront Layer') {
             steps {
+                def bffTag = env.TAG_STOREFRONT_BFF ?: 'latest'
+                def uiTag  = env.TAG_STOREFRONT_UI  ?: 'latest'
+
+                echo "Deploying storefront-bff with tag: ${bffTag}"
                 sh """
                     helm dependency build ${CHARTS_PATH}/storefront-bff
                     helm upgrade --install storefront-bff ${CHARTS_PATH}/storefront-bff \
                         --namespace ${NAMESPACE} \
-                        --set backend.ingress.host=storefront.${params.DOMAIN}
+                        --set backend.ingress.host=storefront.${DOMAIN} \
+                        --set backend.image.repository=${DOCKERHUB_USER}/storefront-bff \
+                        --set backend.image.tag=${bffTag}
+                """
+
+                echo "Deploying storefront-ui with tag: ${uiTag}"
+                sh """
                     helm dependency build ${CHARTS_PATH}/storefront-ui
                     helm upgrade --install storefront-ui ${CHARTS_PATH}/storefront-ui \
-                        --namespace ${NAMESPACE}
+                        --namespace ${NAMESPACE} \
+                        --set frontend.image.repository=${DOCKERHUB_USER}/storefront-ui \
+                        --set frontend.image.tag=${uiTag}
                 """
             }
         }
