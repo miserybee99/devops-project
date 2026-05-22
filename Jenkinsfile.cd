@@ -121,53 +121,57 @@ pipeline {
 
         stage('Deploy Backoffice Layer') {
             steps {
-                def bffTag = env.TAG_BACKOFFICE_BFF ?: 'latest'
-                def uiTag  = env.TAG_BACKOFFICE_UI  ?: 'latest'
+                script {
+                    def bffTag = env.TAG_BACKOFFICE_BFF ?: 'latest'
+                    def uiTag  = env.TAG_BACKOFFICE_UI  ?: 'latest'
 
-                echo "Deploying backoffice-bff with tag: ${bffTag}"
-                sh """
-                    helm dependency build ${CHARTS_PATH}/backoffice-bff
-                    helm upgrade --install backoffice-bff ${CHARTS_PATH}/backoffice-bff \
-                        --namespace ${NAMESPACE} \
-                        --set backend.ingress.host=backoffice.${DOMAIN} \
-                        --set backend.image.repository=${DOCKERHUB_USER}/backoffice-bff \
-                        --set backend.image.tag=${bffTag}
-                """
+                    echo "Deploying backoffice-bff with tag: ${bffTag}"
+                    sh """
+                        helm dependency build ${CHARTS_PATH}/backoffice-bff
+                        helm upgrade --install backoffice-bff ${CHARTS_PATH}/backoffice-bff \
+                            --namespace ${NAMESPACE} \
+                            --set backend.ingress.host=backoffice.${DOMAIN} \
+                            --set backend.image.repository=${DOCKERHUB_USER}/backoffice-bff \
+                            --set backend.image.tag=${bffTag}
+                    """
 
-                echo "Deploying backoffice-ui with tag: ${uiTag}"
-                sh """
-                    helm dependency build ${CHARTS_PATH}/backoffice-ui
-                    helm upgrade --install backoffice-ui ${CHARTS_PATH}/backoffice-ui \
-                        --namespace ${NAMESPACE} \
-                        --set frontend.image.repository=${DOCKERHUB_USER}/backoffice-ui \
-                        --set frontend.image.tag=${uiTag}
-                """
+                    echo "Deploying backoffice-ui with tag: ${uiTag}"
+                    sh """
+                        helm dependency build ${CHARTS_PATH}/backoffice-ui
+                        helm upgrade --install backoffice-ui ${CHARTS_PATH}/backoffice-ui \
+                            --namespace ${NAMESPACE} \
+                            --set frontend.image.repository=${DOCKERHUB_USER}/backoffice-ui \
+                            --set frontend.image.tag=${uiTag}
+                    """
+                }
             }
         }
         
         stage('Deploy Storefront Layer') {
             steps {
-                def bffTag = env.TAG_STOREFRONT_BFF ?: 'latest'
-                def uiTag  = env.TAG_STOREFRONT_UI  ?: 'latest'
+                script {
+                    def bffTag = env.TAG_STOREFRONT_BFF ?: 'latest'
+                    def uiTag  = env.TAG_STOREFRONT_UI  ?: 'latest'
 
-                echo "Deploying storefront-bff with tag: ${bffTag}"
-                sh """
-                    helm dependency build ${CHARTS_PATH}/storefront-bff
-                    helm upgrade --install storefront-bff ${CHARTS_PATH}/storefront-bff \
-                        --namespace ${NAMESPACE} \
-                        --set backend.ingress.host=storefront.${DOMAIN} \
-                        --set backend.image.repository=${DOCKERHUB_USER}/storefront-bff \
-                        --set backend.image.tag=${bffTag}
-                """
+                    echo "Deploying storefront-bff with tag: ${bffTag}"
+                    sh """
+                        helm dependency build ${CHARTS_PATH}/storefront-bff
+                        helm upgrade --install storefront-bff ${CHARTS_PATH}/storefront-bff \
+                            --namespace ${NAMESPACE} \
+                            --set backend.ingress.host=storefront.${DOMAIN} \
+                            --set backend.image.repository=${DOCKERHUB_USER}/storefront-bff \
+                            --set backend.image.tag=${bffTag}
+                    """
 
-                echo "Deploying storefront-ui with tag: ${uiTag}"
-                sh """
-                    helm dependency build ${CHARTS_PATH}/storefront-ui
-                    helm upgrade --install storefront-ui ${CHARTS_PATH}/storefront-ui \
-                        --namespace ${NAMESPACE} \
-                        --set frontend.image.repository=${DOCKERHUB_USER}/storefront-ui \
-                        --set frontend.image.tag=${uiTag}
-                """
+                    echo "Deploying storefront-ui with tag: ${uiTag}"
+                    sh """
+                        helm dependency build ${CHARTS_PATH}/storefront-ui
+                        helm upgrade --install storefront-ui ${CHARTS_PATH}/storefront-ui \
+                            --namespace ${NAMESPACE} \
+                            --set frontend.image.repository=${DOCKERHUB_USER}/storefront-ui \
+                            --set frontend.image.tag=${uiTag}
+                    """
+                }
             }
         }
         

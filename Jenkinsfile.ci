@@ -32,7 +32,7 @@ pipeline {
                     env.CURRENT_BRANCH = currentBranch
                     echo "Current branch: ${env.CURRENT_BRANCH}"
 
-                    if (currentBranch == "feature/gitops") {
+                    if (currentBranch == "main") {
                         def gitTag = sh(
                             script: "git tag --points-at HEAD | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+' || true",
                             returnStdout: true
@@ -108,8 +108,12 @@ pipeline {
         stage('Build Services') {
             steps {
                 script {
-                    if (env.CHANGED_FRONTEND_SERVICES) {
-                        for (svc in env.CHANGED_FRONTEND_SERVICES) {
+                    if (env.CHANGED_FRONTEND_SERVICES?.trim()) {
+                        def frontendServices =
+                            env.CHANGED_FRONTEND_SERVICES
+                                .split(',')
+                                .findAll { it?.trim() }
+                        for (svc in frontendServices) {
                             echo "Building UI service: ${svc} (npm)"
                             sh """
                                 cd ${svc}
@@ -120,9 +124,13 @@ pipeline {
                         }
                     }
 
-                    if (env.CHANGED_BACKEND_SERVICES) {
+                    if (env.CHANGED_BACKEND_SERVICES?.trim()) {
                         sh "chmod +x mvnw"
-                        def modules = env.CHANGED_BACKEND_SERVICES.join(",")
+                        def modules =
+                            env.CHANGED_BACKEND_SERVICES
+                                .split(',')
+                                .findAll { it?.trim() }
+                                .join(',')
                         echo "Building backend services: ${modules} (Maven)"
                         sh "./mvnw clean install -pl ${modules} -am -DskipTests"
                     }
