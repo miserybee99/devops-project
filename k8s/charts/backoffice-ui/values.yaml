@@ -1,6 +1,6 @@
 ui:
   image:
-    repository: bync/backoffice-ui
+    repository: bync/backoffice
     tag: latest
   nameOverride: backoffice-ui
   fullnameOverride: backoffice-ui

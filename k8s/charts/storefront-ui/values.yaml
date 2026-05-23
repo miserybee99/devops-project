@@ -1,6 +1,6 @@
 ui:
   image:
-    repository: bync/storefront-ui
+    repository: bync/storefront
     tag: latest
   nameOverride: storefront-ui
   fullnameOverride: storefront-ui
