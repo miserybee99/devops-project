@@ -17,6 +17,7 @@ pipeline {
         stage('Prepare') {
             steps {
                 script {
+                    sh "git fetch --tags"
                     def commitId = sh(
                             script: "git rev-parse --short HEAD",
                             returnStdout: true
