@@ -285,15 +285,15 @@ pipeline {
                                 echo '--- Unit test summary ---'
                                 total=0
                                 for svc in ${serviceList}; do
-                                    if [ -d "$svc/target/surefire-reports" ]; then
-                                        count=$(grep -hEo 'tests="[0-9]+"' "$svc/target/surefire-reports"/*.xml 2>/dev/null | sed 's/tests="//;s/"//' | awk '{sum += $1} END {print sum+0}')
-                                        echo "$svc: $count"
-                                        total=$((total + count))
+                                    if [ -d "\$svc/target/surefire-reports" ]; then
+                                        count=$(grep -hEo 'tests="[0-9]+"' "\$svc/target/surefire-reports"/*.xml 2>/dev/null | sed 's/tests="//;s/"//' | awk '{sum += \$1} END {print sum+0}')
+                                        echo "\$svc: \$count"
+                                        total=\$((total + count))
                                     else
-                                        echo "$svc: no test reports"
+                                        echo "\$svc: no test reports"
                                     fi
                                 done
-                                echo "Total tests run: $total"
+                                echo "Total tests run: \$total"
                             """
                         }
                     }
