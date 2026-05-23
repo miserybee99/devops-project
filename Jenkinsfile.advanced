@@ -21,6 +21,9 @@ pipeline {
         }
 
         stage('Update Dev Overlay') {
+            when {
+                expression { return params.DEPLOY_ENV == "dev" }
+            }
             steps {
                 script {
                     def services = params.CHANGED_SERVICES.split(",")
