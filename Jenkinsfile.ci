@@ -26,7 +26,7 @@ pipeline {
                     env.COMMIT_ID = commitId
                     echo "COMMIT_ID: ${env.COMMIT_ID}"
 
-                    def currentBranch = env.BRANCH_NAME ?: sh(
+                    def currentBranch = sh(
                         script: "git rev-parse --abbrev-ref HEAD",
                         returnStdout: true
                     ).trim()

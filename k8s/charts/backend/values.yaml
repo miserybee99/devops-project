@@ -94,7 +94,7 @@ livenessProbe:
   successThreshold: 1
   httpGet:
     path: /actuator/health/liveness
-    port: metric
+    port: http-metric
   initialDelaySeconds: 300
   periodSeconds: 15
   timeoutSeconds: 5
@@ -106,7 +106,7 @@ readinessProbe:
   successThreshold: 1
   httpGet:
     path: /actuator/health/readiness
-    port: metric
+    port: http-metric
   initialDelaySeconds: 300
   periodSeconds: 15
   timeoutSeconds: 5

@@ -12,7 +12,7 @@ spec:
       protocol: TCP
       name: http
     - port: {{ .Values.metricPort }}
-      targetPort: metric
+      targetPort: http-metric
       protocol: TCP
       name: metric
   selector:
