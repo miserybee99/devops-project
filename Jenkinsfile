@@ -276,17 +276,18 @@ pipeline {
                             def projects = services.collect { "-pl ${it}" }.join(' ')
                             def serviceList = services.join(' ')
                             sh """
-                                mvn -B -ntp -T 1C test \
-                                    ${projects} \
-                                    -am \
-                                    -Djacoco.skip=false \
+                                mvn -B -ntp -T 1C test \\
+                                    ${projects} \\
+                                    -am \\
+                                    -Djacoco.skip=false \\
                                     -Dmaven.test.failure.ignore=true
-
+                            """
+                            sh """
                                 echo '--- Unit test summary ---'
                                 total=0
                                 for svc in ${serviceList}; do
                                     if [ -d "\$svc/target/surefire-reports" ]; then
-                                        count=$(grep -hEo 'tests="[0-9]+"' "\$svc/target/surefire-reports"/*.xml 2>/dev/null | sed 's/tests="//;s/"//' | awk '{sum += \$1} END {print sum+0}')
+                                        count=\$(grep -hEo 'tests="[0-9]+"' "\$svc/target/surefire-reports"/*.xml 2>/dev/null | sed 's/tests="//;s/"//' | awk '{sum += \$1} END {print sum+0}')
                                         echo "\$svc: \$count"
                                         total=\$((total + count))
                                     else
