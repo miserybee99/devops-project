@@ -8,7 +8,7 @@ image:
   repository: swaggerapi/swagger-ui
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "v4.16.0"
+  tag: "v5.17.14"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -95,3 +95,17 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+swaggerRoutes:
+  - product
+  - media
+  - customer
+  - cart
+  - rating
+  - order
+  - payment
+  - location
+  - inventory
+  - tax
+  - promotion
+  - search
