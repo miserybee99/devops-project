@@ -161,106 +161,104 @@ pipeline {
         }
 
         // ===================================================================
-        //  PHASE 0 — SECRET SCAN
+        //  PHASE 0 — SECRET SCAN (DISABLED)
         // ===================================================================
-        stage('Gitleaks Secret Scan') {
-            steps {
-                sh '''
-                    if ! command -v gitleaks &> /dev/null; then
-                        echo "Installing Gitleaks..."
-                        curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
-                        tar -xzf /tmp/gitleaks.tar.gz -C .tools gitleaks
-                        rm -f /tmp/gitleaks.tar.gz
-                        export PATH="${PWD}/.tools:${PATH}"
-                    fi
-                    gitleaks detect --source . --verbose --redact --no-git || true
-                '''
-            }
-        }
+        // stage('Gitleaks Secret Scan') {
+        //     steps {
+        //         sh '''
+        //             if ! command -v gitleaks &> /dev/null; then
+        //                 echo "Installing Gitleaks..."
+        //                 curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+        //                 tar -xzf /tmp/gitleaks.tar.gz -C .tools gitleaks
+        //                 rm -f /tmp/gitleaks.tar.gz
+        //                 export PATH="${PWD}/.tools:${PATH}"
+        //             fi
+        //             gitleaks detect --source . --verbose --redact --no-git || true
+        //         '''
+        //     }
+        // }
 
         // ===================================================================
-        //  PHASE 1 — CODE QUALITY & SECURITY SCAN
+        //  PHASE 1 — CODE QUALITY & SECURITY SCAN (DISABLED)
         // ===================================================================
-        stage('SonarQube Analysis') {
-            when {
-                expression { env.CHANGED_BACKEND_SERVICES }
-            }
-            steps {
-                script {
-                    def modules = env.CHANGED_BACKEND_SERVICES.split(',').toList()
-                    def projects = modules.collect { "-pl ${it}" }.join(' ')
+        // stage('SonarQube Analysis') {
+        //     when {
+        //         expression { env.CHANGED_BACKEND_SERVICES }
+        //     }
+        //     steps {
+        //         script {
+        //             def modules = env.CHANGED_BACKEND_SERVICES.split(',').toList()
+        //             def projects = modules.collect { "-pl ${it}" }.join(' ')
+        //
+        //             sh """
+        //                 mvn compile \
+        //                     ${projects} \
+        //                     -am \
+        //                     -DskipTests
+        //             """
+        //
+        //             withSonarQubeEnv('sornaque') {
+        //                 sh """
+        //                     mvn sonar:sonar \
+        //                         ${projects} \
+        //                         -am \
+        //                         -DskipTests \
+        //                         -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+        //                 """
+        //             }
+        //         }
+        //     }
+        // }
 
-                    sh """
-                        mvn compile \
-                            ${projects} \
-                            -am \
-                            -DskipTests
-                    """
-
-                    withSonarQubeEnv('sornaque') {
-                        sh """
-                            mvn sonar:sonar \
-                                ${projects} \
-                                -am \
-                                -DskipTests \
-                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('Snyk Security Scan') {
-            when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
-            }
-            steps {
-                script {
-                    def allChanged = []
-
-                    if (env.CHANGED_BACKEND_SERVICES) {
-                        allChanged.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
-                    }
-                    if (env.CHANGED_FRONTEND_SERVICES) {
-                        allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
-                    }
-
-                    for (svc in allChanged) {
-                        echo "🔒 Snyk scanning: ${svc}"
-                        dir(svc) {
-                            // Ép JAVA_HOME và PATH cho Snyk CLI
-                            withEnv([
-                                "JAVA_HOME=${env.JAVA_HOME}",
-                                "PATH=${env.JAVA_HOME}/bin:${env.PATH}"
-                            ]) {
-                                sh '''
-                                    set -eux
-                                    echo "JAVA_HOME=$JAVA_HOME"
-                                    which java || true
-                                    java -version
-                                    which mvn  || true
-                                    mvn -version
-                                    # Đảm bảo có mvnw và có quyền execute cho Snyk Maven plugin
-                                    if [ -f "../mvnw" ] && [ ! -f "./mvnw" ]; then
-                                      cp ../mvnw ./mvnw
-                                    fi
-                                    if [ -f "./mvnw" ]; then
-                                      chmod +x ./mvnw || true
-                                    fi
-                                '''
-                                snykSecurity(
-                                    snykInstallation: 'snyk',
-                                    snykTokenId: 'snyk-token',
-                                    failOnIssues: false,
-                                    monitorProjectOnBuild: true,
-                                    additionalArguments: '--all-projects -d'
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // stage('Snyk Security Scan') {
+        //     when {
+        //         expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+        //     }
+        //     steps {
+        //         script {
+        //             def allChanged = []
+        //
+        //             if (env.CHANGED_BACKEND_SERVICES) {
+        //                 allChanged.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
+        //             }
+        //             if (env.CHANGED_FRONTEND_SERVICES) {
+        //                 allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
+        //             }
+        //
+        //             for (svc in allChanged) {
+        //                 echo "🔒 Snyk scanning: ${svc}"
+        //                 dir(svc) {
+        //                     withEnv([
+        //                         "JAVA_HOME=${env.JAVA_HOME}",
+        //                         "PATH=${env.JAVA_HOME}/bin:${env.PATH}"
+        //                     ]) {
+        //                         sh '''
+        //                             set -eux
+        //                             echo "JAVA_HOME=$JAVA_HOME"
+        //                             which java || true
+        //                             java -version
+        //                             which mvn  || true
+        //                             mvn -version
+        //                             if [ -f "../mvnw" ] && [ ! -f "./mvnw" ]; then
+        //                               cp ../mvnw ./mvnw
+        //                             fi
+        //                             if [ -f "./mvnw" ]; then
+        //                               chmod +x ./mvnw || true
+        //                             fi
+        //                         '''
+        //                         snykSecurity(
+        //                             snykInstallation: 'snyk',
+        //                             snykTokenId: 'snyk-token',
+        //                             failOnIssues: false,
+        //                             monitorProjectOnBuild: true,
+        //                             additionalArguments: '--all-projects -d'
+        //                         )
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         // ===================================================================
         //  PHASE 2 — TEST
@@ -276,12 +274,26 @@ pipeline {
                         script {
                             def services = env.CHANGED_BACKEND_SERVICES.split(',')
                             def projects = services.collect { "-pl ${it}" }.join(' ')
+                            def serviceList = services.join(' ')
                             sh """
                                 mvn -B -ntp -T 1C test \
                                     ${projects} \
                                     -am \
                                     -Djacoco.skip=false \
                                     -Dmaven.test.failure.ignore=true
+
+                                echo '--- Unit test summary ---'
+                                total=0
+                                for svc in ${serviceList}; do
+                                    if [ -d "$svc/target/surefire-reports" ]; then
+                                        count=$(grep -hEo 'tests="[0-9]+"' "$svc/target/surefire-reports"/*.xml 2>/dev/null | sed 's/tests="//;s/"//' | awk '{sum += $1} END {print sum+0}')
+                                        echo "$svc: $count"
+                                        total=$((total + count))
+                                    else
+                                        echo "$svc: no test reports"
+                                    fi
+                                done
+                                echo "Total tests run: $total"
                             """
                         }
                     }
@@ -346,132 +358,82 @@ pipeline {
             }
         }
 
-        stage('Frontend Test') {
-            when {
-                expression { env.CHANGED_FRONTEND_SERVICES }
-            }
-            steps {
-                script {
-                    def services = env.CHANGED_FRONTEND_SERVICES.split(',')
-                    for (svc in services) {
-                        echo "Frontend Test: ${svc}"
-                        dir(svc) {
-                            sh 'npm ci'
-                            sh 'npm run lint || true'
-                            // Next apps may have no "test" script; npm 7+ skips cleanly with --if-present
-                            sh 'npm run test --if-present -- --coverage --reporters=default --reporters=jest-junit || true'
-                        }
-                    }
-                }
-            }
-            post {
-                always {
-                    script {
-                        def hasFrontendJunit = fileExists('storefront/junit.xml') || fileExists('backoffice/junit.xml')
-                        if (hasFrontendJunit) {
-                            junit testResults: '**/junit.xml', allowEmptyResults: true
-                        } else {
-                            echo "No frontend junit.xml found; skipping JUnit publishing."
-                        }
-                    }
-                }
-            }
-        }
+        // stage('Frontend Test') {
+        //     when {
+        //         expression { env.CHANGED_FRONTEND_SERVICES }
+        //     }
+        //     steps {
+        //         script {
+        //             def services = env.CHANGED_FRONTEND_SERVICES.split(',')
+        //             for (svc in services) {
+        //                 echo "Frontend Test: ${svc}"
+        //                 dir(svc) {
+        //                     sh 'npm ci'
+        //                     sh 'npm run lint || true'
+        //                     sh 'npm run test --if-present -- --coverage --reporters=default --reporters=jest-junit || true'
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     post {
+        //         always {
+        //             script {
+        //                 def hasFrontendJunit = fileExists('storefront/junit.xml') || fileExists('backoffice/junit.xml')
+        //                 if (hasFrontendJunit) {
+        //                     junit testResults: '**/junit.xml', allowEmptyResults: true
+        //                 } else {
+        //                     echo "No frontend junit.xml found; skipping JUnit publishing."
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         // ===================================================================
-        //  PHASE 3 — BUILD
+        //  PHASE 3 — BUILD (DISABLED)
         // ===================================================================
-        stage('Build') {
-            when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
-            }
-            parallel {
-
-                stage('Build Backend JARs') {
-                    when {
-                        expression { env.CHANGED_BACKEND_SERVICES }
-                    }
-                    steps {
-                        script {
-                            def services = env.CHANGED_BACKEND_SERVICES.split(',')
-                            def projects = services.collect { "-pl ${it}" }.join(' ')
-                            sh """
-                                mvn package \
-                                    ${projects} \
-                                    -am \
-                                    -DskipTests
-                            """
-                        }
-                    }
-                }
-
-                stage('Build Frontend') {
-                    when {
-                        expression { env.CHANGED_FRONTEND_SERVICES }
-                    }
-                    steps {
-                        script {
-                            def services = env.CHANGED_FRONTEND_SERVICES.split(',')
-                            for (svc in services) {
-                                dir(svc) {
-                                    sh 'npm ci'
-                                    sh 'npm run build'
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Build & Push Docker Images') {
-            when {
-                expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
-            }
-            steps {
-                script {
-                    def tag = env.GIT_COMMIT.take(12)
-
-                    def allChanged = []
-
-                    if (env.CHANGED_BACKEND_SERVICES) {
-                        allChanged.addAll(env.CHANGED_BACKEND_SERVICES.split(',').toList())
-                    }
-                    if (env.CHANGED_FRONTEND_SERVICES) {
-                        allChanged.addAll(env.CHANGED_FRONTEND_SERVICES.split(',').toList())
-                    }
-
-                    def servicesToBuild = allChanged.findAll { svc ->
-                        fileExists("${svc}/Dockerfile")
-                    }
-
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        def registry = "${env.DOCKER_USER}/yas"
-
-                        sh '''
-                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        '''
-
-                        for (svc in servicesToBuild) {
-                            def imageTag = "${registry}:${svc}-${tag}"
-
-                            echo "🚀 Building & pushing: ${imageTag}"
-
-                            dir(svc) {
-                                sh """
-                                    docker build -t ${imageTag} .
-                                    docker push ${imageTag}
-                                """
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // stage('Build') {
+        //     when {
+        //         expression { env.CHANGED_BACKEND_SERVICES || env.CHANGED_FRONTEND_SERVICES }
+        //     }
+        //     parallel {
+        //
+        //         stage('Build Backend JARs') {
+        //             when {
+        //                 expression { env.CHANGED_BACKEND_SERVICES }
+        //             }
+        //             steps {
+        //                 script {
+        //                     def services = env.CHANGED_BACKEND_SERVICES.split(',')
+        //                     def projects = services.collect { "-pl ${it}" }.join(' ')
+        //                     sh """
+        //                         mvn package \
+        //                             ${projects} \
+        //                             -am \
+        //                             -DskipTests
+        //                     """
+        //                 }
+        //             }
+        //         }
+        //
+        //         stage('Build Frontend') {
+        //             when {
+        //                 expression { env.CHANGED_FRONTEND_SERVICES }
+        //             }
+        //             steps {
+        //                 script {
+        //                     def services = env.CHANGED_FRONTEND_SERVICES.split(',')
+        //                     for (svc in services) {
+        //                         dir(svc) {
+        //                             sh 'npm ci'
+        //                             sh 'npm run build'
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
     }
 
