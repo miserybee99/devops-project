@@ -48,55 +48,53 @@ pipeline {
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-name: image-cleanup
-namespace: default
+  name: image-cleanup
+  namespace: default
 spec:
-selector:
+  selector:
     matchLabels:
-    app: image-cleanup
-template:
+      app: image-cleanup
+  template:
     metadata:
-    labels:
+      labels:
         app: image-cleanup
     spec:
-    hostPID: true
-    tolerations:
-    - operator: Exists
-    volumes:
-    - name: containerd-sock
+      hostPID: true
+      tolerations:
+      - operator: Exists
+      volumes:
+      - name: containerd-sock
         hostPath:
-        path: /run/containerd/containerd.sock
-        type: Socket
-    - name: crictl-bin
+          path: /run/containerd/containerd.sock
+          type: Socket
+      - name: crictl-bin
         hostPath:
-        path: /usr/local/bin/crictl
-        type: File
-    containers:
-    - name: cleanup
+          path: /usr/local/bin/crictl
+          type: File
+      containers:
+      - name: cleanup
         image: alpine:3.18
         command:
         - sh
         - -c
         - |
-        echo "Cleaning images matching: ${imageFilter}"
-        /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock images \\
-            | grep '${imageFilter}' \\
-            | awk '{print \$3}' \\
-            | sort -u \\
-            | xargs -r /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock rmi || true
-        /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock rmi --prune || true
-        echo "Cleanup done on node"
-        sleep infinity
+          echo "Cleaning images matching: FILTER_PLACEHOLDER"
+          /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock images | grep "FILTER_PLACEHOLDER" | awk '{print \$3}' | sort -u | xargs -r /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock rmi || true
+          /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock rmi --prune || true
+          echo "Cleanup done on node"
+          sleep infinity
         securityContext:
-        privileged: true
+          privileged: true
         volumeMounts:
         - name: containerd-sock
-        mountPath: /run/containerd/containerd.sock
+          mountPath: /run/containerd/containerd.sock
         - name: crictl-bin
-        mountPath: /usr/local/bin/crictl
+          mountPath: /usr/local/bin/crictl
 """
+                    sh "sed -i 's|FILTER_PLACEHOLDER|${imageFilter}|g' image-cleanup-ds.yaml"
+        
                     sh "kubectl apply -f image-cleanup-ds.yaml"
-
+        
                     sh """
                         for i in \$(seq 1 36); do
                             DESIRED=\$(kubectl get daemonset image-cleanup -n default -o jsonpath='{.status.desiredNumberScheduled}')
