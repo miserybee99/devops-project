@@ -40,34 +40,78 @@ pipeline {
         stage('Cleanup Images') {
             steps {
                 script {
+                    def imageFilter = params.SERVICE_NAME?.trim()
+                        ? "${DOCKERHUB_USER}/${params.SERVICE_NAME}"
+                        : "${DOCKERHUB_USER}/"
 
-                    def nodes = sh(
-                        script: "kubectl get nodes -o name",
-                        returnStdout: true
-                    ).trim().split('\n')
+                    writeFile file: 'image-cleanup-ds.yaml', text: """
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+name: image-cleanup
+namespace: default
+spec:
+selector:
+    matchLabels:
+    app: image-cleanup
+template:
+    metadata:
+    labels:
+        app: image-cleanup
+    spec:
+    hostPID: true
+    tolerations:
+    - operator: Exists
+    volumes:
+    - name: containerd-sock
+        hostPath:
+        path: /run/containerd/containerd.sock
+        type: Socket
+    - name: crictl-bin
+        hostPath:
+        path: /usr/local/bin/crictl
+        type: File
+    containers:
+    - name: cleanup
+        image: alpine:3.18
+        command:
+        - sh
+        - -c
+        - |
+        echo "Cleaning images matching: ${imageFilter}"
+        /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock images \\
+            | grep '${imageFilter}' \\
+            | awk '{print \$3}' \\
+            | sort -u \\
+            | xargs -r /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock rmi || true
+        /usr/local/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock rmi --prune || true
+        echo "Cleanup done on node"
+        sleep infinity
+        securityContext:
+        privileged: true
+        volumeMounts:
+        - name: containerd-sock
+        mountPath: /run/containerd/containerd.sock
+        - name: crictl-bin
+        mountPath: /usr/local/bin/crictl
+"""
+                    sh "kubectl apply -f image-cleanup-ds.yaml"
 
-                    for (n in nodes) {
-                        def node = n.replace("node/", "")
-                        echo "Cleanup images on ${node}"
+                    sh """
+                        for i in \$(seq 1 36); do
+                            DESIRED=\$(kubectl get daemonset image-cleanup -n default -o jsonpath='{.status.desiredNumberScheduled}')
+                            READY=\$(kubectl get daemonset image-cleanup -n default -o jsonpath='{.status.numberReady}')
+                            echo "Waiting... desired=\$DESIRED ready=\$READY"
+                            if [ "\$DESIRED" = "\$READY" ] && [ "\$DESIRED" != "0" ]; then
+                                echo "All nodes cleaned up!"
+                                break
+                            fi
+                            sleep 5
+                        done
+                    """
 
-                        sh """
-                            kubectl debug node/${node} \
-                                --image=ubuntu \
-                                --quiet \
-                                -- chroot /host sh -c '
-                                    IMAGE_IDS=\$(crictl images | grep "bync/" | awk "{print \\\$3}")
-
-                                    for id in \$IMAGE_IDS
-                                    do
-                                        crictl rmi \$id || true
-                                    done
-
-                                    crictl rmi --prune || true
-                                '
-                        """
-                    }
-
-                    sh "kubectl delete pods -n default -l app=kubectl-debug --ignore-not-found || true"
+                    sh "kubectl delete daemonset image-cleanup -n default --ignore-not-found || true"
+                    sh "rm -f image-cleanup-ds.yaml"
                 }
             }
         }
