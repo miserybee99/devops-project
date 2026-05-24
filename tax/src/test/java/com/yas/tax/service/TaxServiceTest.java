@@ -104,6 +104,129 @@ public class TaxServiceTest {
     }
 
     @Test
+    void findById_shouldThrowNotFound_whenTaxRateMissing() {
+        when(taxRateRepository.findById(1234L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> taxRateService.findById(1234L))
+            .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void updateTaxRate_shouldThrowNotFound_whenTaxClassMissing() {
+        TaxRatePostVm postVm = new TaxRatePostVm(10.0, "60000", 99L, 5L, 6L);
+        TaxRate existingTaxRate = taxRate;
+        existingTaxRate.setId(888L);
+
+        when(taxRateRepository.findById(888L)).thenReturn(Optional.of(existingTaxRate));
+        when(taxClassRepository.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> taxRateService.updateTaxRate(postVm, 888L))
+            .isInstanceOf(NotFoundException.class);
+        verify(taxRateRepository, never()).save(org.mockito.ArgumentMatchers.any(TaxRate.class));
+    }
+
+    @Test
+    void updateTaxRate_shouldSave_whenTaxClassIdIsUnchanged() {
+        TaxRatePostVm postVm = new TaxRatePostVm(15.0, "50000", taxRate.getTaxClass().getId(), 7L, 8L);
+        TaxRate existingTaxRate = taxRate;
+        existingTaxRate.setId(999L);
+
+        when(taxRateRepository.findById(999L)).thenReturn(Optional.of(existingTaxRate));
+        when(taxClassRepository.existsById(taxRate.getTaxClass().getId())).thenReturn(true);
+        when(taxClassRepository.getReferenceById(taxRate.getTaxClass().getId()))
+            .thenReturn(taxRate.getTaxClass());
+        when(taxRateRepository.save(org.mockito.ArgumentMatchers.any(TaxRate.class)))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        taxRateService.updateTaxRate(postVm, 999L);
+
+        verify(taxRateRepository).save(existingTaxRate);
+        assertThat(existingTaxRate.getRate()).isEqualTo(15.0);
+        assertThat(existingTaxRate.getZipCode()).isEqualTo("50000");
+        assertThat(existingTaxRate.getStateOrProvinceId()).isEqualTo(7L);
+        assertThat(existingTaxRate.getCountryId()).isEqualTo(8L);
+        assertThat(existingTaxRate.getTaxClass()).isEqualTo(taxRate.getTaxClass());
+    }
+
+    @Test
+    void createTaxRate_shouldGetReferenceTaxClassBeforeSave() {
+        TaxRatePostVm postVm = new TaxRatePostVm(7.5, "70000", 1L, 10L, 20L);
+        TaxClass taxClass = new TaxClass();
+        taxClass.setId(1L);
+
+        when(taxClassRepository.existsById(1L)).thenReturn(true);
+        when(taxClassRepository.getReferenceById(1L)).thenReturn(taxClass);
+        when(taxRateRepository.save(org.mockito.ArgumentMatchers.any(TaxRate.class)))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        TaxRate created = taxRateService.createTaxRate(postVm);
+
+        verify(taxClassRepository).getReferenceById(1L);
+        assertThat(created.getTaxClass()).isEqualTo(taxClass);
+    }
+
+    @Test
+    void getTaxPercent_shouldReturnZero_whenRepositoryReturnsZero() {
+        when(taxRateRepository.getTaxPercent(84L, 12L, "70000", 3L)).thenReturn(0.0);
+
+        double result = taxRateService.getTaxPercent(3L, 84L, 12L, "70000");
+
+        assertThat(result).isZero();
+    }
+
+    @Test
+    void getBulkTaxRate_shouldReturnEmptyWhenNoTaxRates() {
+        when(taxRateRepository.getBatchTaxRates(21L, 11L, "70000", new HashSet<>(List.of(3L, 4L))))
+            .thenReturn(List.of());
+
+        List<TaxRateVm> bulkTaxRates = taxRateService.getBulkTaxRate(List.of(3L, 4L), 21L, 11L, "70000");
+
+        assertThat(bulkTaxRates).isEmpty();
+    }
+
+    @Test
+    void getPageableTaxRates_shouldReturnDetailContentForMultipleTaxRates() {
+        TaxClass taxClass = new TaxClass();
+        taxClass.setId(2L);
+        taxClass.setName("Reduced");
+
+        TaxRate taxRate1 = TaxRate.builder()
+            .id(101L)
+            .rate(5.0)
+            .zipCode("70000")
+            .stateOrProvinceId(11L)
+            .countryId(21L)
+            .taxClass(taxClass)
+            .build();
+
+        TaxRate taxRate2 = TaxRate.builder()
+            .id(102L)
+            .rate(7.0)
+            .zipCode("70001")
+            .stateOrProvinceId(11L)
+            .countryId(21L)
+            .taxClass(taxClass)
+            .build();
+
+        Page<TaxRate> pageable = new PageImpl<>(List.of(taxRate1, taxRate2), PageRequest.of(0, 10), 2);
+        StateOrProvinceAndCountryGetNameVm locationNameVm = new StateOrProvinceAndCountryGetNameVm(11L,
+            "Hanoi",
+            "Vietnam");
+
+        when(taxRateRepository.findAll(org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+            .thenReturn(pageable);
+        when(locationService.getStateOrProvinceAndCountryNames(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(List.of(locationNameVm));
+
+        TaxRateListGetVm result = taxRateService.getPageableTaxRates(0, 10);
+
+        assertThat(result.taxRateGetDetailContent()).hasSize(2);
+        assertThat(result.taxRateGetDetailContent().get(0).stateOrProvinceName()).isEqualTo("Hanoi");
+        assertThat(result.pageSize()).isEqualTo(10);
+        assertThat(result.totalElements()).isEqualTo(2);
+    }
+
+    @Test
     void delete_shouldThrowNotFound_whenTaxRateMissing() {
         when(taxRateRepository.existsById(1234L)).thenReturn(false);
 
@@ -246,5 +369,22 @@ public class TaxServiceTest {
 
         assertThat(bulkTaxRates).hasSize(2);
         assertThat(bulkTaxRates).containsExactly(TaxRateVm.fromModel(taxRate1), TaxRateVm.fromModel(taxRate2));
+    }
+
+    @Test
+    void getPageableTaxRates_shouldReturnEmptyWhenNoTaxRates() {
+        Page<TaxRate> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+
+        when(taxRateRepository.findAll(PageRequest.of(0, 10))).thenReturn(emptyPage);
+
+        TaxRateListGetVm result = taxRateService.getPageableTaxRates(0, 10);
+
+        assertThat(result.pageNo()).isEqualTo(0);
+        assertThat(result.pageSize()).isEqualTo(10);
+        assertThat(result.totalElements()).isEqualTo(0);
+        assertThat(result.totalPages()).isEqualTo(0);
+        assertThat(result.isLast()).isTrue();
+        assertThat(result.taxRateGetDetailContent()).isEmpty();
+        verify(locationService, never()).getStateOrProvinceAndCountryNames(org.mockito.ArgumentMatchers.any());
     }
 }
