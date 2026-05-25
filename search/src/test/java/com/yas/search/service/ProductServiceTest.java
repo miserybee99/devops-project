@@ -162,6 +162,45 @@ class ProductServiceTest {
         verify(elasticsearchOperations).search(any(NativeQuery.class), eq(Product.class));
     }
 
+    @Test
+    void testAutoCompleteProductName_whenNoProducts_returnEmptyList() {
+        SearchHits<Product> searchHits = mock(SearchHits.class);
+        when(searchHits.stream()).thenReturn(List.<SearchHit<Product>>of().stream());
+        when(elasticsearchOperations.search(any(NativeQuery.class), eq(Product.class)))
+            .thenReturn(searchHits);
+
+        ProductNameListVm result = productService.autoCompleteProductName("Unknown");
+
+        assertNotNull(result);
+        assertEquals(0, result.productNames().size());
+    }
+
+    @Test
+    void testFindProductAdvance_whenFilterAndRangeApplied_buildsNativeQuery() {
+        SearchHits<Product> searchHits = getSearchHits();
+        when(elasticsearchOperations.search(any(NativeQuery.class), eq(Product.class))).thenReturn(searchHits);
+
+        ArgumentCaptor<NativeQuery> captor = ArgumentCaptor.forClass(NativeQuery.class);
+
+        ProductCriteriaDto criteriaDto = new ProductCriteriaDto(
+            "filtered", 1, 5, "BrandName", "testCategory",
+            "testAttribute", 50.0, 150.0, SortType.PRICE_ASC);
+        ProductListGetVm result = productService.findProductAdvance(criteriaDto);
+
+        verify(elasticsearchOperations, times(1))
+            .search(captor.capture(), eq(Product.class));
+
+        NativeQuery captured = captor.getValue();
+        assertNotNull(captured.getQuery());
+        assertNotNull(captured.getPageable());
+        assertEquals(1, captured.getPageable().getPageNumber());
+        assertEquals(5, captured.getPageable().getPageSize());
+        assertEquals("price: ASC", captured.getSort().toString());
+
+        assertNotNull(result);
+        assertEquals(1, result.products().size());
+    }
+
     private static SearchHits<Product> getSearchHits() {
 
         Product product = Product.builder()

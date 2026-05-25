@@ -24,6 +24,7 @@ public class BrandService {
 
     public BrandService(BrandRepository brandRepository) {
         this.brandRepository = brandRepository;
+        // This is test 
     }
 
     public BrandListGetVm getBrands(int pageNo, int pageSize) {
