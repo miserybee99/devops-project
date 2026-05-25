@@ -26,14 +26,16 @@ pipeline {
                     env.COMMIT_ID = commitId
                     echo "COMMIT_ID: ${env.COMMIT_ID}"
 
-                    def currentBranch = sh(
-                        script: "git rev-parse --abbrev-ref HEAD",
+                    def ref = sh(
+                        script: "git name-rev --name-only HEAD",
                         returnStdout: true
                     ).trim()
-                    env.CURRENT_BRANCH = currentBranch
-                    echo "Current branch: ${env.CURRENT_BRANCH}"
+                    echo "Ref: ${ref}"
+                    echo "Current branch: ${ref}"
+                    
+                    def isMain = ref.contains("main")
 
-                    if (currentBranch == "main") {
+                    if (isMain) {
                         def gitTag = sh(
                             script: "git tag --points-at HEAD | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+' || true",
                             returnStdout: true
