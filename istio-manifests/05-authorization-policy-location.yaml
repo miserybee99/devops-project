@@ -1,0 +1,21 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-location
+  namespace: dev
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: location
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - "cluster.local/ns/dev/sa/customer"
+        # - "cluster.local/ns/dev/sa/inventory"
+        # - "cluster.local/ns/dev/sa/tax"
+        # - "cluster.local/ns/dev/sa/webhook"
+    to:
+    - operation:
+        methods: ["GET"]

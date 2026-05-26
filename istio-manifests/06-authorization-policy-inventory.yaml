@@ -1,0 +1,19 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-inventory
+  namespace: dev
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inventory
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - "cluster.local/ns/dev/sa/order"
+        - "cluster.local/ns/dev/sa/product"
+    to:
+    - operation:
+        methods: ["GET", "POST", "PUT", "PATCH"]

@@ -1,0 +1,18 @@
+# Tạm thời allow từ tất cả trong namespace yas để không block
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-search
+  namespace: dev
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: search
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["dev"]   # Allow mọi service trong namespace dev
+    to:
+    - operation:
+        methods: ["GET", "POST"]

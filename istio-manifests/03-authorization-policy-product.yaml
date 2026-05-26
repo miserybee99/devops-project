@@ -1,0 +1,24 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-product
+  namespace: dev
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: product
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - "cluster.local/ns/dev/sa/order"
+        - "cluster.local/ns/dev/sa/cart"
+        - "cluster.local/ns/dev/sa/inventory"
+        # - "cluster.local/ns/dev/sa/promotion"
+        # - "cluster.local/ns/dev/sa/rating"
+        - "cluster.local/ns/dev/sa/search"
+        # - "cluster.local/ns/dev/sa/recommendation"
+    to:
+    - operation:
+        methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]  

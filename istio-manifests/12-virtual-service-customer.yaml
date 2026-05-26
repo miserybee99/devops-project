@@ -1,0 +1,18 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: customer-retry-policy
+  namespace: dev
+spec:
+  hosts:
+  - customer
+  http:
+  - route:
+    - destination:
+        host: customer
+        port:
+          number: 80
+    retries:
+      attempts: 3
+      perTryTimeout: 2s
+      retryOn: "5xx,gateway-error,connect-failure,refused-stream,unavailable"
